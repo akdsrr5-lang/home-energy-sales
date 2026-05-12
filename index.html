@@ -217,7 +217,11 @@ function App() {
 
   const gasMonthly = FISCAL_MONTHS.reduce((acc,{year,month})=>{
     const key=monthKey(year,month), ents=gasEntries.filter(g=>g.monthKey===key);
-    acc[key]={ forecast:ents.reduce((s,g)=>s+(g.forecast||0),0), actual:ents.filter(g=>g.isActual&&g.actual!=null).reduce((s,g)=>s+g.actual,0), hasActual:ents.some(g=>g.isActual&&g.actual!=null) };
+    acc[key]={
+      forecast: ents.filter(g=>!g.isActual).reduce((s,g)=>s+(g.forecast||0),0),
+      actual:   ents.filter(g=>g.isActual&&g.actual!=null).reduce((s,g)=>s+g.actual,0),
+      hasActual: ents.some(g=>g.isActual&&g.actual!=null)
+    };
     return acc;
   },{});
   const gasTotalForecast = Object.values(gasMonthly).reduce((s,v)=>s+v.forecast,0);
@@ -225,12 +229,14 @@ function App() {
 
   const monthlyActual = FISCAL_MONTHS.reduce((acc,{year,month})=>{
     const key=monthKey(year,month);
+    // 実績：ステータスが「売上」のもの（ランク問わず）
     acc[key]=properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0)+(gasMonthly[key].hasActual?gasMonthly[key].actual:0);
     return acc;
   },{});
   const monthlyForecast = FISCAL_MONTHS.reduce((acc,{year,month})=>{
     const key=monthKey(year,month);
-    acc[key]=properties.filter(p=>["見積","受注","売上"].includes(p.status)&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0)+(gasMonthly[key].forecast||0);
+    // 売上見込：「見積」かつランクA、または「受注」ランク問わず
+    acc[key]=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0)+(gasMonthly[key].forecast||0);
     return acc;
   },{});
   const totalBudget   = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)]||0),0);
@@ -488,7 +494,7 @@ function App() {
                       const propActual=properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                       const gasActual=gd.hasActual?gd.actual:0;
                       const totalA=propActual+gasActual;
-                      const propForecast=properties.filter(p=>["見積","受注","売上"].includes(p.status)&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                      const propForecast=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                       const gasForecast=gd.forecast||0;
                       const totalF=propForecast+gasForecast;
                       const diff=totalA-budget, rate=budget>0?(totalA/budget)*100:null;
@@ -513,7 +519,7 @@ function App() {
                       <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--green)",fontSize:13}}>{properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0)>0?properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0).toLocaleString()+"円":"—"}</span></td>
                       <td><span style={{fontFamily:"'DM Mono',monospace",color:"#2ecc8a99",fontSize:13}}>{gasTotalActual>0?gasTotalActual.toLocaleString()+"円":"—"}</span></td>
                       <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",color:"#2ecc8a",fontSize:16,fontWeight:900}}>{totalActual>0?totalActual.toLocaleString()+"円":"—"}</span></td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--gold)",fontSize:13}}>{properties.filter(p=>["見積","受注","売上"].includes(p.status)).reduce((s,p)=>s+p.sales,0)>0?properties.filter(p=>["見積","受注","売上"].includes(p.status)).reduce((s,p)=>s+p.sales,0).toLocaleString()+"円":"—"}</span></td>
+                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--gold)",fontSize:13}}>{(()=>{const v=properties.filter(p=>(p.status==="見積"&&p.rank==="A")||p.status==="受注").reduce((s,p)=>s+p.sales,0);return v>0?v.toLocaleString()+"円":"—";})()}</span></td>
                       <td><span style={{fontFamily:"'DM Mono',monospace",color:"#e8a02099",fontSize:13}}>{gasTotalForecast>0?gasTotalForecast.toLocaleString()+"円":"—"}</span></td>
                       <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",color:"#f5c060",fontSize:16,fontWeight:900}}>{totalForecast>0?totalForecast.toLocaleString()+"円":"—"}</span></td>
                       <td><span className={totalDiff>0?"diff-pos":totalDiff<0?"diff-neg":"diff-zero"} style={{fontSize:15}}>{totalBudget>0?(totalDiff>0?"▲ ":totalDiff<0?"▼ ":"±")+Math.abs(totalDiff).toLocaleString()+"円":"—"}</span></td>
