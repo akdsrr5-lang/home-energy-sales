@@ -345,6 +345,8 @@ function App() {
   const [editForm, setEditForm] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteInput, setDeleteInput]   = useState("");
+  const [gasDeleteTarget, setGasDeleteTarget] = useState(null);
+  const [gasDeleteInput, setGasDeleteInput]   = useState("");
   const [saveMsg, setSaveMsg]   = useState(false);
 
   useEffect(() => {
@@ -381,6 +383,11 @@ function App() {
     if(gasEntries.find(g=>g.monthKey===gasForm.monthKey&&g.period===gasForm.period)) return alert("同じ月・期がすでに登録されています");
     const next = [...gasEntries, { id:Date.now().toString(), monthKey:gasForm.monthKey, period:gasForm.period, forecast:parseFloat(gasForm.forecast)||0, actual:null, isActual:false, createdAt:new Date().toISOString() }];
     setGasEntries(next); saveGas(next); setGasForm(EMPTY_GAS_FORM);
+  };
+  const handleGasDelete = () => {
+    if(gasDeleteInput!=="削除確認") return alert('「削除確認」と入力してください');
+    const next = gasEntries.filter(g=>g.id!==gasDeleteTarget.id);
+    setGasEntries(next); saveGas(next); setGasDeleteTarget(null); setGasDeleteInput("");
   };
   const handleGasToggle = id => {
     const next = gasEntries.map(g=>g.id===id?{...g,isActual:!g.isActual}:g);
@@ -632,7 +639,7 @@ function App() {
               ) : (
                 <div className="table-wrap">
                   <table>
-                    <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th></tr></thead>
+                    <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
                     <tbody>
                       {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||a.period.localeCompare(b.period)).map(g=>{
                         const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
@@ -660,6 +667,7 @@ function App() {
                                 {g.isActual?"✓ 実績":"見込"}
                               </button>
                             </td>
+                            <td><button className="btn btn-danger" onClick={()=>{setGasDeleteTarget(g);setGasDeleteInput("");}}>🗑 削除</button></td>
                           </tr>
                         );
                       })}
@@ -791,6 +799,26 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ガス削除確認モーダル */}
+      {gasDeleteTarget && (
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget){setGasDeleteTarget(null);setGasDeleteInput("");}}}>
+          <div className="modal" style={{maxWidth:480}}>
+            <div className="modal-title">🗑 ガス売上を削除</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.7}}>
+              <strong>{FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===gasDeleteTarget.monthKey)?.label}</strong>・<strong>{gasDeleteTarget.period}</strong>（見込：{fmt(gasDeleteTarget.forecast)}）を削除します。
+            </div>
+            <div className="delete-confirm">
+              <p>⚠️ 削除すると売上見込みから除外されます。<br/>本当に削除する場合は下に <strong>「削除確認」</strong> と入力してください。</p>
+              <input type="text" placeholder="削除確認" value={gasDeleteInput} onChange={e=>setGasDeleteInput(e.target.value)}/>
+              <div style={{display:"flex",gap:10}}>
+                <button className="btn btn-secondary" onClick={()=>{setGasDeleteTarget(null);setGasDeleteInput("");}}>やめる</button>
+                <button className="btn btn-danger" onClick={handleGasDelete}>完全に削除する</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
