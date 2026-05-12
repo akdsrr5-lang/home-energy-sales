@@ -348,16 +348,22 @@ function App() {
   const [gasDeleteTarget, setGasDeleteTarget] = useState(null);
   const [gasDeleteInput, setGasDeleteInput]   = useState("");
   const [saveMsg, setSaveMsg]   = useState(false);
+  const [budgetLocks, setBudgetLocks] = useState({});
 
   useEffect(() => {
     const p = lsGet("he_properties"); if(p) setProperties(p);
     const b = lsGet("he_budgets");    if(b) setBudgets(b);
     const g = lsGet("he_gas");        if(g) setGasEntries(g);
+    const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
   }, []);
 
   const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2000); };
   const saveAll = (props, bdgs, gas) => { lsSet("he_properties",props); lsSet("he_budgets",bdgs); lsSet("he_gas",gas); flash(); };
   const saveGas = gas => { lsSet("he_gas",gas); flash(); };
+  const toggleBudgetLock = key => {
+    const next = {...budgetLocks, [key]: !budgetLocks[key]};
+    setBudgetLocks(next); lsSet("he_budgetlocks", next);
+  };
 
   const handleAdd = () => {
     if(!form.date||!form.name) return alert("売上予定日と物件名は必須です");
@@ -687,7 +693,7 @@ function App() {
                   <thead>
                     <tr>
                       <th rowSpan={2}>月</th>
-                      <th rowSpan={2}>予算<br/><span className="sub">（入力可）</span></th>
+                      <th rowSpan={2}>予算<br/><span className="sub">（🔓で施錠）</span></th>
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)"}}>実　績</th>
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)"}}>売上見込</th>
                       <th rowSpan={2}>予算比</th>
@@ -712,10 +718,26 @@ function App() {
                       const gasForecast=gd.forecast||0;
                       const totalF=propForecast+gasForecast;
                       const diff=totalA-budget, rate=budget>0?(totalA/budget)*100:null;
+                        const isLocked = !!budgetLocks[key];
                       return (
                         <tr key={key}>
                           <td style={{fontWeight:600,color:"var(--text)"}}>{label}</td>
-                          <td><input className="budget-input" type="number" value={budgets[key]||""} placeholder="予算入力" onChange={e=>handleBudget(key,e.target.value)}/></td>
+                          <td>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <input className="budget-input" type="number"
+                                value={budgets[key]||""} placeholder="予算入力"
+                                disabled={isLocked}
+                                onChange={e=>handleBudget(key,e.target.value)}
+                                style={{opacity:isLocked?0.5:1, cursor:isLocked?"not-allowed":"text", flex:1}}
+                              />
+                              <button onClick={()=>toggleBudgetLock(key)} title={isLocked?"ロック解除":"施錠"}
+                                style={{padding:"5px 8px",borderRadius:6,fontSize:14,cursor:"pointer",border:"1.5px solid",transition:"all .15s",background:"transparent",
+                                  borderColor:isLocked?"#fca5a5":"var(--border)",
+                                  color:isLocked?"var(--red)":"var(--muted)"}}>
+                                {isLocked?"🔒":"🔓"}
+                              </button>
+                            </div>
+                          </td>
                           <td className="num" style={{color:propActual>0?"var(--green)":"var(--border2)"}}>{propActual>0?propActual.toLocaleString()+"円":"—"}</td>
                           <td className="num" style={{color:gasActual>0?"#10b981":"var(--border2)",fontSize:11}}>{gasActual>0?gasActual.toLocaleString()+"円":"—"}</td>
                           <td className="num" style={{color:totalA>0?"var(--green)":"var(--border2)",fontWeight:700,borderRight:"2px solid var(--border)"}}>{totalA>0?totalA.toLocaleString()+"円":"—"}</td>
