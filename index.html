@@ -313,8 +313,24 @@ const calcRate   = (s,p) => { const sv=parseFloat(s)||0; return sv===0?0:((sv-(p
 const monthKey   = (y,m) => `${y}-${String(m).padStart(2,"0")}`;
 const dateToMK   = d => { if(!d) return null; const dt=new Date(d); return monthKey(dt.getFullYear(),dt.getMonth()+1); };
 
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzpEaLlJwAvhJmyBKYo0AfqY1o9kh7f9TMSt7zYVyLFRMYIy1BMTIqtj5wU7FSerd8LDA/exec';
+
+// ローカルキャッシュ（オフライン対応）
 const lsGet = key => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):null; } catch { return null; } };
 const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} };
+
+// スプレッドシートからロード
+async function gasLoad() {
+  const res = await fetch(GAS_URL + '?action=load');
+  return await res.json();
+}
+// スプレッドシートへ保存
+async function gasSave(properties, budgets, gas) {
+  await fetch(GAS_URL, {
+    method:'POST',
+    body: JSON.stringify({ action:'save', properties, budgets, gas }),
+  });
+}
 
 function StaffToggle({ value, onChange, options }) {
   return (
@@ -374,17 +390,39 @@ function App() {
   const [gasDeleteInput, setGasDeleteInput]   = useState("");
   const [saveMsg, setSaveMsg]   = useState(false);
   const [budgetLocks, setBudgetLocks] = useState({});
+  const [loading, setLoading]   = useState(true);
+  const [syncing, setSyncing]   = useState(false);
 
   useEffect(() => {
+    // まずローカルキャッシュで即表示
     const p = lsGet("he_properties"); if(p) setProperties(p);
     const b = lsGet("he_budgets");    if(b) setBudgets(b);
     const g = lsGet("he_gas");        if(g) setGasEntries(g);
     const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
+    // スプレッドシートから最新データを取得
+    gasLoad().then(data => {
+      if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
+      if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
+      if(data.gas)        { setGasEntries(data.gas);        lsSet("he_gas",        data.gas); }
+    }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
   }, []);
 
-  const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2000); };
-  const saveAll = (props, bdgs, gas) => { lsSet("he_properties",props); lsSet("he_budgets",bdgs); lsSet("he_gas",gas); flash(); };
-  const saveGas = gas => { lsSet("he_gas",gas); flash(); };
+  const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2500); };
+
+  const saveAll = (props, bdgs, gas) => {
+    // ローカルキャッシュに即保存
+    lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
+    flash();
+    // スプレッドシートに非同期保存
+    setSyncing(true);
+    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
+  };
+  const saveGas = gas => {
+    lsSet("he_gas", gas); flash();
+    setSyncing(true);
+    const props = lsGet("he_properties")||[], bdgs = lsGet("he_budgets")||{};
+    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
+  };
   const toggleBudgetLock = key => {
     const next = {...budgetLocks, [key]: !budgetLocks[key]};
     setBudgetLocks(next); lsSet("he_budgetlocks", next);
@@ -479,6 +517,8 @@ function App() {
             <span style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}></span>
             保存済み
           </span>
+          {syncing && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>☁️ 同期中…</span>}
+          {loading && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>📡 読込中…</span>}
         </div>
 
         <div className="tabs">
