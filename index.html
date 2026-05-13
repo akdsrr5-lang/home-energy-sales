@@ -324,12 +324,14 @@ async function gasLoad() {
   const res = await fetch(GAS_URL + '?action=load');
   return await res.json();
 }
-// スプレッドシートへ保存
+// スプレッドシートへ保存（GETメソッド）
 async function gasSave(properties, budgets, gas) {
-  await fetch(GAS_URL, {
-    method:'POST',
-    body: JSON.stringify({ action:'save', properties, budgets, gas }),
-  });
+  const url = GAS_URL
+    + '?action=save'
+    + '&properties=' + encodeURIComponent(JSON.stringify(properties))
+    + '&budgets='    + encodeURIComponent(JSON.stringify(budgets))
+    + '&gas='        + encodeURIComponent(JSON.stringify(gas));
+  await fetch(url);
 }
 
 function StaffToggle({ value, onChange, options }) {
