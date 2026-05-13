@@ -306,6 +306,7 @@ const EMPTY_FORM     = { date:"", status:"見積", name:"", sales:"", purchase:"
 const EMPTY_GAS_FORM = { monthKey:"2026-06", period:"前期", forecast:"" };
 
 const fmt    = n => n == null || n === "" ? "—" : Number(n).toLocaleString("ja-JP") + "円";
+const fmtK   = n => n == null || n === 0  ? "—" : (Math.round(Number(n)/1000)).toLocaleString("ja-JP") + "千円";
 const fmtPct = n => n == null || isNaN(n) ? "—" : Number(n).toFixed(1) + "%";
 const calcProfit = (s,p) => (parseFloat(s)||0) - (parseFloat(p)||0);
 const calcRate   = (s,p) => { const sv=parseFloat(s)||0; return sv===0?0:((sv-(parseFloat(p)||0))/sv)*100; };
@@ -327,6 +328,30 @@ function StaffToggle({ value, onChange, options }) {
           {s}
         </button>
       ))}
+    </div>
+  );
+}
+
+function BudgetInput({ bkey, locked, value, onSave, onToggleLock }) {
+  const [local, setLocal] = useState(value === 0 ? "" : String(value));
+  useEffect(() => { setLocal(value === 0 ? "" : String(value)); }, [bkey]);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:4}}>
+      <input
+        className="budget-input"
+        type="number"
+        value={local}
+        placeholder="千円入力"
+        disabled={locked}
+        onChange={e => setLocal(e.target.value)}
+        onBlur={e => onSave(bkey, e.target.value)}
+        style={{opacity:locked?0.5:1, cursor:locked?"not-allowed":"text", width:100}}
+      />
+      <button tabIndex={-1} onClick={()=>onToggleLock(bkey)} title={locked?"ロック解除":"施錠"}
+        style={{padding:"4px 6px",borderRadius:6,fontSize:13,cursor:"pointer",border:"1.5px solid",background:"transparent",transition:"all .15s",
+          borderColor:locked?"#fca5a5":"var(--border)",color:locked?"var(--red)":"var(--muted)"}}>
+        {locked?"🔒":"🔓"}
+      </button>
     </div>
   );
 }
@@ -383,6 +408,8 @@ function App() {
     const next = {...budgets,[key]:parseFloat(val)||0};
     setBudgets(next); saveAll(properties,next,gasEntries);
   };
+  // 予算は千円単位入力 → 円換算
+  const budgetYen = key => (budgets[key]||0) * 1000;
 
   const handleGasAdd = () => {
     if(!gasForm.forecast) return alert("見込金額を入力してください");
@@ -694,7 +721,7 @@ function App() {
                     <tr>
                       <th rowSpan={3} style={{minWidth:80}}>月</th>
                       {/* 予算 */}
-                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（🔓で施錠）</span></th>
+                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（単位：千円 / 🔓で施錠）</span></th>
                       {/* 実績 */}
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)"}}>実　績</th>
                       {/* 売上見込 */}
@@ -729,9 +756,9 @@ function App() {
                       const key = monthKey(year,month);
                       const gd  = gasMonthly[key];
 
-                      // 予算（ガス・器具工事それぞれ）
-                      const budgetGas   = budgets[key+"_gas"]  || 0;
-                      const budgetKougu = budgets[key+"_kougu"]|| 0;
+                      // 予算（ガス・器具工事それぞれ、千円入力→円換算）
+                      const budgetGas   = budgetYen(key+"_gas");
+                      const budgetKougu = budgetYen(key+"_kougu");
                       const budgetTotal = budgetGas + budgetKougu;
                       const isLockedGas   = !!budgetLocks[key+"_gas"];
                       const isLockedKougu = !!budgetLocks[key+"_kougu"];
@@ -755,42 +782,27 @@ function App() {
                       const rateTotal  = budgetTotal > 0 ? (actualTotal  / budgetTotal) * 100 : null;
 
                       const diffCell = (diff, hasBudget) => hasBudget
-                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.abs(diff).toLocaleString()}円</span>
+                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.round(Math.abs(diff)/1000).toLocaleString()}千円</span>
                         : <span style={{color:"var(--border2)"}}>—</span>;
                       const rateCell = (rate, bg) => rate !== null
                         ? <span style={{color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700}}>{rate.toFixed(1)}%</span>
                         : "—";
 
-                      const BudgetInput = ({bkey, locked}) => (
-                        <div style={{display:"flex",alignItems:"center",gap:4}}>
-                          <input className="budget-input" type="number" value={budgets[bkey]||""} placeholder="予算入力"
-                            disabled={locked}
-                            onChange={e=>handleBudget(bkey,e.target.value)}
-                            style={{opacity:locked?0.5:1,cursor:locked?"not-allowed":"text",width:100}}
-                          />
-                          <button onClick={()=>toggleBudgetLock(bkey)} title={locked?"ロック解除":"施錠"}
-                            style={{padding:"4px 6px",borderRadius:6,fontSize:13,cursor:"pointer",border:"1.5px solid",background:"transparent",transition:"all .15s",
-                              borderColor:locked?"#fca5a5":"var(--border)",color:locked?"var(--red)":"var(--muted)"}}>
-                            {locked?"🔒":"🔓"}
-                          </button>
-                        </div>
-                      );
-
                       return (
                         <tr key={key}>
                           <td style={{fontWeight:600}}>{label}</td>
                           {/* 予算 */}
-                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_gas"} locked={isLockedGas}/></td>
-                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_kougu"} locked={isLockedKougu}/></td>
-                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:budgetTotal>0?"var(--text2)":"var(--border2)"}}>{budgetTotal>0?budgetTotal.toLocaleString()+"円":"—"}</td>
+                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_gas"} locked={isLockedGas} value={budgets[key+"_gas"]||0} onSave={handleBudget} onToggleLock={toggleBudgetLock}/></td>
+                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_kougu"} locked={isLockedKougu} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onToggleLock={toggleBudgetLock}/></td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:budgetTotal>0?"var(--text2)":"var(--border2)"}}>{fmtK(budgetTotal)}</td>
                           {/* 実績 */}
-                          <td className="num" style={{color:actualGas>0?"#0891b2":"var(--border2)"}}>{actualGas>0?actualGas.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:actualKougu>0?"var(--accent)":"var(--border2)"}}>{actualKougu>0?actualKougu.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:actualTotal>0?"var(--green)":"var(--border2)"}}>{actualTotal>0?actualTotal.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{color:actualGas>0?"#0891b2":"var(--border2)"}}>{fmtK(actualGas)}</td>
+                          <td className="num" style={{color:actualKougu>0?"var(--accent)":"var(--border2)"}}>{fmtK(actualKougu)}</td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:actualTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(actualTotal)}</td>
                           {/* 売上見込 */}
-                          <td className="num" style={{color:forecastGas>0?"#0891b2":"var(--border2)"}}>{forecastGas>0?forecastGas.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:forecastKougu>0?"var(--gold)":"var(--border2)"}}>{forecastKougu>0?forecastKougu.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:forecastTotal>0?"var(--gold)":"var(--border2)"}}>{forecastTotal>0?forecastTotal.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{color:forecastGas>0?"#0891b2":"var(--border2)"}}>{fmtK(forecastGas)}</td>
+                          <td className="num" style={{color:forecastKougu>0?"var(--gold)":"var(--border2)"}}>{fmtK(forecastKougu)}</td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:forecastTotal>0?"var(--gold)":"var(--border2)"}}>{fmtK(forecastTotal)}</td>
                           {/* ガス予実 */}
                           <td style={{background:"#f0f9ff"}}>{diffCell(diffGas, budgetGas>0)}</td>
                           <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{rateCell(rateGas)}</td>
@@ -805,8 +817,8 @@ function App() {
                     })}
                     {/* 年度合計行 */}
                     {(()=>{
-                      const annualBudgetGas   = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)+"_gas"]||0),0);
-                      const annualBudgetKougu = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)+"_kougu"]||0),0);
+                      const annualBudgetGas   = FISCAL_MONTHS.reduce((s,{year,month})=>s+budgetYen(monthKey(year,month)+"_gas"),0);
+                      const annualBudgetKougu = FISCAL_MONTHS.reduce((s,{year,month})=>s+budgetYen(monthKey(year,month)+"_kougu"),0);
                       const annualBudgetTotal = annualBudgetGas + annualBudgetKougu;
                       const annualActualGas   = gasTotalActual;
                       const annualActualKougu = properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0);
@@ -820,9 +832,9 @@ function App() {
                       const annualRateGas   = annualBudgetGas   > 0 ? (annualActualGas   / annualBudgetGas)   * 100 : null;
                       const annualRateKougu = annualBudgetKougu > 0 ? (annualActualKougu / annualBudgetKougu) * 100 : null;
                       const annualRateTotal = annualBudgetTotal > 0 ? (annualActualTotal / annualBudgetTotal) * 100 : null;
-                      const M = n => <span style={{fontFamily:"'DM Mono',monospace",fontWeight:800}}>{n>0?n.toLocaleString()+"円":"—"}</span>;
+                      const M = n => <span style={{fontFamily:"'DM Mono',monospace",fontWeight:800}}>{fmtK(n)}</span>;
                       const D = (diff, hasBudget) => hasBudget
-                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"} style={{fontSize:13}}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.abs(diff).toLocaleString()}円</span>
+                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"} style={{fontSize:13}}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.round(Math.abs(diff)/1000).toLocaleString()}千円</span>
                         : "—";
                       const R = (rate, size=14) => rate !== null
                         ? <span style={{fontFamily:"'DM Mono',monospace",fontSize:size,fontWeight:900,color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate.toFixed(1)}%</span>
@@ -832,13 +844,13 @@ function App() {
                           <td style={{color:"var(--text)",letterSpacing:".04em"}}>🏆 2026年度 合計</td>
                           <td style={{background:"#f8fafc"}}>{M(annualBudgetGas)}</td>
                           <td style={{background:"#f8fafc"}}>{M(annualBudgetKougu)}</td>
-                          <td style={{borderRight:"2px solid var(--border)",background:"#f8fafc"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:14,color:"var(--text2)"}}>{annualBudgetTotal>0?annualBudgetTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{borderRight:"2px solid var(--border)",background:"#f8fafc"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:14,color:"var(--text2)"}}>{fmtK(annualBudgetTotal)}</span></td>
                           <td style={{color:"#0891b2"}}>{M(annualActualGas)}</td>
                           <td style={{color:"var(--accent)"}}>{M(annualActualKougu)}</td>
-                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--green)"}}>{annualActualTotal>0?annualActualTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--green)"}}>{fmtK(annualActualTotal)}</span></td>
                           <td style={{color:"#0891b2"}}>{M(annualForecastGas)}</td>
                           <td style={{color:"var(--gold)"}}>{M(annualForecastKougu)}</td>
-                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--gold)"}}>{annualForecastTotal>0?annualForecastTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--gold)"}}>{fmtK(annualForecastTotal)}</span></td>
                           <td style={{background:"#f0f9ff"}}>{D(annualDiffGas, annualBudgetGas>0)}</td>
                           <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(annualRateGas)}</td>
                           <td style={{background:"#f8faff"}}>{D(annualDiffKougu, annualBudgetKougu>0)}</td>
