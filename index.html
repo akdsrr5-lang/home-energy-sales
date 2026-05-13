@@ -692,75 +692,162 @@ function App() {
                 <table className="budget-table">
                   <thead>
                     <tr>
-                      <th rowSpan={2}>月</th>
-                      <th rowSpan={2}>予算<br/><span className="sub">（🔓で施錠）</span></th>
+                      <th rowSpan={3} style={{minWidth:80}}>月</th>
+                      {/* 予算 */}
+                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（🔓で施錠）</span></th>
+                      {/* 実績 */}
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)"}}>実　績</th>
+                      {/* 売上見込 */}
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)"}}>売上見込</th>
-                      <th rowSpan={2}>予算比</th>
-                      <th rowSpan={2}>達成率</th>
+                      {/* ガス予実 */}
+                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"#0891b2",background:"#f0f9ff"}}>ガス予実</th>
+                      {/* 器具工事予実 */}
+                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--accent)",background:"#f8faff"}}>器具工事予実</th>
+                      {/* 合計予実 */}
+                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"#f0fdf4"}}>合計予実</th>
                     </tr>
                     <tr>
-                      <th className="sub" style={{color:"var(--green)"}}>物件</th>
-                      <th className="sub" style={{color:"#6ee7b7"}}>ガス</th>
-                      <th className="sub" style={{color:"var(--green)",fontWeight:900}}>合計</th>
-                      <th className="sub" style={{color:"var(--gold)"}}>物件</th>
-                      <th className="sub" style={{color:"#fcd34d"}}>ガス</th>
-                      <th className="sub" style={{color:"var(--gold)",fontWeight:900}}>合計</th>
+                      <th className="sub" style={{color:"#0891b2",background:"#f0f9ff"}}>ガス</th>
+                      <th className="sub" style={{color:"var(--accent)",background:"#f8faff"}}>器具工事</th>
+                      <th className="sub" style={{color:"var(--text2)",background:"#f8fafc",borderRight:"2px solid var(--border)"}}>合計</th>
+                      <th className="sub" style={{color:"#0891b2"}}>ガス</th>
+                      <th className="sub" style={{color:"var(--accent)"}}>器具工事</th>
+                      <th className="sub" style={{color:"var(--green)",fontWeight:900,borderRight:"2px solid var(--border)"}}>合計</th>
+                      <th className="sub" style={{color:"#0891b2"}}>ガス</th>
+                      <th className="sub" style={{color:"var(--accent)"}}>器具工事</th>
+                      <th className="sub" style={{color:"var(--gold)",fontWeight:900,borderRight:"2px solid var(--border)"}}>合計</th>
+                      <th className="sub" style={{color:"#0891b2",background:"#f0f9ff"}}>予算比</th>
+                      <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>達成率</th>
+                      <th className="sub" style={{color:"var(--accent)",background:"#f8faff"}}>予算比</th>
+                      <th className="sub" style={{color:"var(--accent)",background:"#f8faff",borderRight:"2px solid var(--border)"}}>達成率</th>
+                      <th className="sub" style={{color:"var(--green)",background:"#f0fdf4"}}>予算比</th>
+                      <th className="sub" style={{color:"var(--green)",background:"#f0fdf4"}}>達成率</th>
                     </tr>
                   </thead>
                   <tbody>
                     {FISCAL_MONTHS.map(({label,year,month})=>{
-                      const key=monthKey(year,month), budget=budgets[key]||0, gd=gasMonthly[key];
-                      const propActual=properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                      const gasActual=gd.hasActual?gd.actual:0;
-                      const totalA=propActual+gasActual;
-                      const propForecast=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                      const gasForecast=gd.forecast||0;
-                      const totalF=propForecast+gasForecast;
-                      const diff=totalA-budget, rate=budget>0?(totalA/budget)*100:null;
-                        const isLocked = !!budgetLocks[key];
+                      const key = monthKey(year,month);
+                      const gd  = gasMonthly[key];
+
+                      // 予算（ガス・器具工事それぞれ）
+                      const budgetGas   = budgets[key+"_gas"]  || 0;
+                      const budgetKougu = budgets[key+"_kougu"]|| 0;
+                      const budgetTotal = budgetGas + budgetKougu;
+                      const isLockedGas   = !!budgetLocks[key+"_gas"];
+                      const isLockedKougu = !!budgetLocks[key+"_kougu"];
+
+                      // 実績
+                      const actualGas   = gd.hasActual ? gd.actual : 0;
+                      const actualKougu = properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                      const actualTotal = actualGas + actualKougu;
+
+                      // 売上見込
+                      const forecastGas   = gd.forecast || 0;
+                      const forecastKougu = properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                      const forecastTotal = forecastGas + forecastKougu;
+
+                      // 予実差・達成率
+                      const diffGas    = actualGas   - budgetGas;
+                      const diffKougu  = actualKougu - budgetKougu;
+                      const diffTotal  = actualTotal  - budgetTotal;
+                      const rateGas    = budgetGas   > 0 ? (actualGas   / budgetGas)   * 100 : null;
+                      const rateKougu  = budgetKougu > 0 ? (actualKougu / budgetKougu) * 100 : null;
+                      const rateTotal  = budgetTotal > 0 ? (actualTotal  / budgetTotal) * 100 : null;
+
+                      const diffCell = (diff, hasBudget) => hasBudget
+                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.abs(diff).toLocaleString()}円</span>
+                        : <span style={{color:"var(--border2)"}}>—</span>;
+                      const rateCell = (rate, bg) => rate !== null
+                        ? <span style={{color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700}}>{rate.toFixed(1)}%</span>
+                        : "—";
+
+                      const BudgetInput = ({bkey, locked}) => (
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <input className="budget-input" type="number" value={budgets[bkey]||""} placeholder="予算入力"
+                            disabled={locked}
+                            onChange={e=>handleBudget(bkey,e.target.value)}
+                            style={{opacity:locked?0.5:1,cursor:locked?"not-allowed":"text",width:100}}
+                          />
+                          <button onClick={()=>toggleBudgetLock(bkey)} title={locked?"ロック解除":"施錠"}
+                            style={{padding:"4px 6px",borderRadius:6,fontSize:13,cursor:"pointer",border:"1.5px solid",background:"transparent",transition:"all .15s",
+                              borderColor:locked?"#fca5a5":"var(--border)",color:locked?"var(--red)":"var(--muted)"}}>
+                            {locked?"🔒":"🔓"}
+                          </button>
+                        </div>
+                      );
+
                       return (
                         <tr key={key}>
-                          <td style={{fontWeight:600,color:"var(--text)"}}>{label}</td>
-                          <td>
-                            <div style={{display:"flex",alignItems:"center",gap:6}}>
-                              <input className="budget-input" type="number"
-                                value={budgets[key]||""} placeholder="予算入力"
-                                disabled={isLocked}
-                                onChange={e=>handleBudget(key,e.target.value)}
-                                style={{opacity:isLocked?0.5:1, cursor:isLocked?"not-allowed":"text", flex:1}}
-                              />
-                              <button onClick={()=>toggleBudgetLock(key)} title={isLocked?"ロック解除":"施錠"}
-                                style={{padding:"5px 8px",borderRadius:6,fontSize:14,cursor:"pointer",border:"1.5px solid",transition:"all .15s",background:"transparent",
-                                  borderColor:isLocked?"#fca5a5":"var(--border)",
-                                  color:isLocked?"var(--red)":"var(--muted)"}}>
-                                {isLocked?"🔒":"🔓"}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="num" style={{color:propActual>0?"var(--green)":"var(--border2)"}}>{propActual>0?propActual.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:gasActual>0?"#10b981":"var(--border2)",fontSize:11}}>{gasActual>0?gasActual.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:totalA>0?"var(--green)":"var(--border2)",fontWeight:700,borderRight:"2px solid var(--border)"}}>{totalA>0?totalA.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:propForecast>0?"var(--gold)":"var(--border2)"}}>{propForecast>0?propForecast.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:gasForecast>0?"#f59e0b":"var(--border2)",fontSize:11}}>{gasForecast>0?gasForecast.toLocaleString()+"円":"—"}</td>
-                          <td className="num" style={{color:totalF>0?"var(--gold)":"var(--border2)",fontWeight:700,borderRight:"2px solid var(--border)"}}>{totalF>0?totalF.toLocaleString()+"円":"—"}</td>
-                          <td className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{budget>0?(diff>0?"▲ ":diff<0?"▼ ":"")+Math.abs(diff).toLocaleString()+"円":"—"}</td>
-                          <td>{rate!==null?(<span style={{color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700}}>{rate.toFixed(1)}%</span>):"—"}</td>
+                          <td style={{fontWeight:600}}>{label}</td>
+                          {/* 予算 */}
+                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_gas"} locked={isLockedGas}/></td>
+                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_kougu"} locked={isLockedKougu}/></td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:budgetTotal>0?"var(--text2)":"var(--border2)"}}>{budgetTotal>0?budgetTotal.toLocaleString()+"円":"—"}</td>
+                          {/* 実績 */}
+                          <td className="num" style={{color:actualGas>0?"#0891b2":"var(--border2)"}}>{actualGas>0?actualGas.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{color:actualKougu>0?"var(--accent)":"var(--border2)"}}>{actualKougu>0?actualKougu.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:actualTotal>0?"var(--green)":"var(--border2)"}}>{actualTotal>0?actualTotal.toLocaleString()+"円":"—"}</td>
+                          {/* 売上見込 */}
+                          <td className="num" style={{color:forecastGas>0?"#0891b2":"var(--border2)"}}>{forecastGas>0?forecastGas.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{color:forecastKougu>0?"var(--gold)":"var(--border2)"}}>{forecastKougu>0?forecastKougu.toLocaleString()+"円":"—"}</td>
+                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:forecastTotal>0?"var(--gold)":"var(--border2)"}}>{forecastTotal>0?forecastTotal.toLocaleString()+"円":"—"}</td>
+                          {/* ガス予実 */}
+                          <td style={{background:"#f0f9ff"}}>{diffCell(diffGas, budgetGas>0)}</td>
+                          <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{rateCell(rateGas)}</td>
+                          {/* 器具工事予実 */}
+                          <td style={{background:"#f8faff"}}>{diffCell(diffKougu, budgetKougu>0)}</td>
+                          <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{rateCell(rateKougu)}</td>
+                          {/* 合計予実 */}
+                          <td style={{background:"#f0fdf4"}}>{diffCell(diffTotal, budgetTotal>0)}</td>
+                          <td style={{background:"#f0fdf4"}}>{rateCell(rateTotal)}</td>
                         </tr>
                       );
                     })}
-                    <tr className="annual-highlight">
-                      <td style={{color:"var(--text)",fontSize:13,letterSpacing:".04em",fontWeight:800}}>🏆 2026年度 合計</td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--gold)",fontWeight:700}}>{totalBudget>0?totalBudget.toLocaleString()+"円":"—"}</span></td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--green)",fontSize:13,fontWeight:700}}>{properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0)>0?properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0).toLocaleString()+"円":"—"}</span></td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"#10b981",fontSize:13}}>{gasTotalActual>0?gasTotalActual.toLocaleString()+"円":"—"}</span></td>
-                      <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",color:"var(--green)",fontSize:15,fontWeight:900}}>{totalActual>0?totalActual.toLocaleString()+"円":"—"}</span></td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"var(--gold)",fontSize:13}}>{(()=>{const v=properties.filter(p=>(p.status==="見積"&&p.rank==="A")||p.status==="受注").reduce((s,p)=>s+p.sales,0);return v>0?v.toLocaleString()+"円":"—";})()}</span></td>
-                      <td><span style={{fontFamily:"'DM Mono',monospace",color:"#f59e0b",fontSize:13}}>{gasTotalForecast>0?gasTotalForecast.toLocaleString()+"円":"—"}</span></td>
-                      <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",color:"var(--gold)",fontSize:15,fontWeight:900}}>{totalForecast>0?totalForecast.toLocaleString()+"円":"—"}</span></td>
-                      <td><span className={totalDiff>0?"diff-pos":totalDiff<0?"diff-neg":"diff-zero"} style={{fontSize:14}}>{totalBudget>0?(totalDiff>0?"▲ ":totalDiff<0?"▼ ":"±")+Math.abs(totalDiff).toLocaleString()+"円":"—"}</span></td>
-                      <td>{totalBudget>0?(<span style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:900,color:totalActual/totalBudget>=1?"var(--green)":totalActual/totalBudget>=0.8?"var(--gold)":"var(--red)"}}>{((totalActual/totalBudget)*100).toFixed(1)}%</span>):"—"}</td>
-                    </tr>
+                    {/* 年度合計行 */}
+                    {(()=>{
+                      const annualBudgetGas   = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)+"_gas"]||0),0);
+                      const annualBudgetKougu = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)+"_kougu"]||0),0);
+                      const annualBudgetTotal = annualBudgetGas + annualBudgetKougu;
+                      const annualActualGas   = gasTotalActual;
+                      const annualActualKougu = properties.filter(p=>p.status==="売上").reduce((s,p)=>s+p.sales,0);
+                      const annualActualTotal = annualActualGas + annualActualKougu;
+                      const annualForecastGas   = gasTotalForecast;
+                      const annualForecastKougu = properties.filter(p=>(p.status==="見積"&&p.rank==="A")||p.status==="受注").reduce((s,p)=>s+p.sales,0);
+                      const annualForecastTotal = annualForecastGas + annualForecastKougu;
+                      const annualDiffGas   = annualActualGas   - annualBudgetGas;
+                      const annualDiffKougu = annualActualKougu - annualBudgetKougu;
+                      const annualDiffTotal = annualActualTotal - annualBudgetTotal;
+                      const annualRateGas   = annualBudgetGas   > 0 ? (annualActualGas   / annualBudgetGas)   * 100 : null;
+                      const annualRateKougu = annualBudgetKougu > 0 ? (annualActualKougu / annualBudgetKougu) * 100 : null;
+                      const annualRateTotal = annualBudgetTotal > 0 ? (annualActualTotal / annualBudgetTotal) * 100 : null;
+                      const M = n => <span style={{fontFamily:"'DM Mono',monospace",fontWeight:800}}>{n>0?n.toLocaleString()+"円":"—"}</span>;
+                      const D = (diff, hasBudget) => hasBudget
+                        ? <span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"} style={{fontSize:13}}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.abs(diff).toLocaleString()}円</span>
+                        : "—";
+                      const R = (rate, size=14) => rate !== null
+                        ? <span style={{fontFamily:"'DM Mono',monospace",fontSize:size,fontWeight:900,color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate.toFixed(1)}%</span>
+                        : "—";
+                      return (
+                        <tr className="annual-highlight">
+                          <td style={{color:"var(--text)",letterSpacing:".04em"}}>🏆 2026年度 合計</td>
+                          <td style={{background:"#f8fafc"}}>{M(annualBudgetGas)}</td>
+                          <td style={{background:"#f8fafc"}}>{M(annualBudgetKougu)}</td>
+                          <td style={{borderRight:"2px solid var(--border)",background:"#f8fafc"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:14,color:"var(--text2)"}}>{annualBudgetTotal>0?annualBudgetTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{color:"#0891b2"}}>{M(annualActualGas)}</td>
+                          <td style={{color:"var(--accent)"}}>{M(annualActualKougu)}</td>
+                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--green)"}}>{annualActualTotal>0?annualActualTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{color:"#0891b2"}}>{M(annualForecastGas)}</td>
+                          <td style={{color:"var(--gold)"}}>{M(annualForecastKougu)}</td>
+                          <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:15,color:"var(--gold)"}}>{annualForecastTotal>0?annualForecastTotal.toLocaleString()+"円":"—"}</span></td>
+                          <td style={{background:"#f0f9ff"}}>{D(annualDiffGas, annualBudgetGas>0)}</td>
+                          <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(annualRateGas)}</td>
+                          <td style={{background:"#f8faff"}}>{D(annualDiffKougu, annualBudgetKougu>0)}</td>
+                          <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{R(annualRateKougu)}</td>
+                          <td style={{background:"#f0fdf4"}}>{D(annualDiffTotal, annualBudgetTotal>0)}</td>
+                          <td style={{background:"#f0fdf4"}}>{R(annualRateTotal,15)}</td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>
