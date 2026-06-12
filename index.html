@@ -320,18 +320,25 @@ const lsGet = key => { try { const v=localStorage.getItem(key); return v?JSON.pa
 const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} };
 
 // スプレッドシートからロード
-async function gasLoad() {
-  const res = await fetch(GAS_URL + '?action=load');
-  return await res.json();
+function gasLoad() {
+  return fetch(GAS_URL + '?action=load').then(r => r.json());
 }
 // スプレッドシートへ保存（GETメソッド）
-async function gasSave(properties, budgets, gas) {
+function gasSave(properties, budgets, gas, locks) {
   const url = GAS_URL
     + '?action=save'
     + '&properties=' + encodeURIComponent(JSON.stringify(properties))
     + '&budgets='    + encodeURIComponent(JSON.stringify(budgets))
-    + '&gas='        + encodeURIComponent(JSON.stringify(gas));
-  await fetch(url);
+    + '&gas='        + encodeURIComponent(JSON.stringify(gas))
+    + '&locks='      + encodeURIComponent(JSON.stringify(locks||{}));
+  return fetch(url);
+}
+// ロックだけ保存
+function saveLocks(locks) {
+  const url = GAS_URL
+    + '?action=save_locks'
+    + '&locks=' + encodeURIComponent(JSON.stringify(locks));
+  return fetch(url);
 }
 
 function StaffToggle({ value, onChange, options }) {
@@ -350,7 +357,7 @@ function StaffToggle({ value, onChange, options }) {
   );
 }
 
-function BudgetInput({ bkey, locked, value, onSave, onToggleLock }) {
+function BudgetInput({ bkey, locked, value, onSave, onRequestUnlock }) {
   const [local, setLocal] = useState(value === 0 ? "" : String(value));
   useEffect(() => { setLocal(value === 0 ? "" : String(value)); }, [bkey]);
   return (
@@ -361,15 +368,14 @@ function BudgetInput({ bkey, locked, value, onSave, onToggleLock }) {
         value={local}
         placeholder="千円入力"
         disabled={locked}
+        onClick={()=>{ if(locked) onRequestUnlock(bkey); }}
         onChange={e => setLocal(e.target.value)}
-        onBlur={e => onSave(bkey, e.target.value)}
-        style={{opacity:locked?0.5:1, cursor:locked?"not-allowed":"text", width:100}}
+        onBlur={e => { if(!locked) onSave(bkey, e.target.value); }}
+        style={{opacity:locked?0.6:1, cursor:locked?"pointer":"text", width:110,
+          background:locked?"#f1f5f9":"var(--bg)"}}
+        title={locked?"クリックして編集（暗証番号が必要）":""}
       />
-      <button tabIndex={-1} onClick={()=>onToggleLock(bkey)} title={locked?"ロック解除":"施錠"}
-        style={{padding:"4px 6px",borderRadius:6,fontSize:13,cursor:"pointer",border:"1.5px solid",background:"transparent",transition:"all .15s",
-          borderColor:locked?"#fca5a5":"var(--border)",color:locked?"var(--red)":"var(--muted)"}}>
-        {locked?"🔒":"🔓"}
-      </button>
+      {locked && <span style={{fontSize:10,color:"var(--muted)"}}>🔒</span>}
     </div>
   );
 }
@@ -390,8 +396,32 @@ function App() {
   const [deleteInput, setDeleteInput]   = useState("");
   const [gasDeleteTarget, setGasDeleteTarget] = useState(null);
   const [gasDeleteInput, setGasDeleteInput]   = useState("");
+  const [salesConfirmTarget, setSalesConfirmTarget] = useState(null);
   const [saveMsg, setSaveMsg]   = useState(false);
   const [budgetLocks, setBudgetLocks] = useState({});
+  const [pinModal, setPinModal]       = useState(null); // 解除対象のbkey
+  const [pinInput, setPinInput]       = useState("");
+  const [pinError, setPinError]       = useState(false);
+  const BUDGET_PIN = "5570";
+
+  const requestUnlock = (bkey) => { setPinModal(bkey); setPinInput(""); setPinError(false); };
+  const confirmPin = () => {
+    if(pinInput === BUDGET_PIN) {
+      const next = {...budgetLocks, [pinModal]: false};
+      setBudgetLocks(next);
+      lsSet("he_budgetlocks", next);
+      saveLocks(next); // スプレッドシートにも保存
+      setPinModal(null); setPinInput(""); setPinError(false);
+    } else {
+      setPinError(true); setPinInput("");
+    }
+  };
+  const lockBudget = (bkey) => {
+    const next = {...budgetLocks, [bkey]: true};
+    setBudgetLocks(next);
+    lsSet("he_budgetlocks", next);
+    saveLocks(next); // スプレッドシートにも保存
+  };
   const [loading, setLoading]   = useState(true);
   const [syncing, setSyncing]   = useState(false);
 
@@ -401,11 +431,12 @@ function App() {
     const b = lsGet("he_budgets");    if(b) setBudgets(b);
     const g = lsGet("he_gas");        if(g) setGasEntries(g);
     const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
-    // スプレッドシートから最新データを取得
+    // スプレッドシートから最新データを取得（locksも含む）
     gasLoad().then(data => {
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
       if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
       if(data.gas)        { setGasEntries(data.gas);        lsSet("he_gas",        data.gas); }
+      if(data.locks)      { setBudgetLocks(data.locks);     lsSet("he_budgetlocks",data.locks); }
     }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
   }, []);
 
@@ -426,8 +457,8 @@ function App() {
     gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
   };
   const toggleBudgetLock = key => {
-    const next = {...budgetLocks, [key]: !budgetLocks[key]};
-    setBudgetLocks(next); lsSet("he_budgetlocks", next);
+    // 後方互換のため残す（内部では lockBudget を使用）
+    lockBudget(key);
   };
 
   const handleAdd = () => {
@@ -456,6 +487,10 @@ function App() {
     if(gasEntries.find(g=>g.monthKey===gasForm.monthKey&&g.period===gasForm.period)) return alert("同じ月・期がすでに登録されています");
     const next = [...gasEntries, { id:Date.now().toString(), monthKey:gasForm.monthKey, period:gasForm.period, forecast:parseFloat(gasForm.forecast)||0, actual:null, isActual:false, createdAt:new Date().toISOString() }];
     setGasEntries(next); saveGas(next); setGasForm(EMPTY_GAS_FORM);
+  };
+  const handleSalesConfirm = () => {
+    const next = properties.map(p => p.id===salesConfirmTarget.id ? {...p, status:"売上"} : p);
+    setProperties(next); saveAll(next, budgets, gasEntries); setSalesConfirmTarget(null);
   };
   const handleGasDelete = () => {
     if(gasDeleteInput!=="削除確認") return alert('「削除確認」と入力してください');
@@ -661,7 +696,18 @@ function App() {
                             <td className={`num ${profit>=0?"profit":"loss"}`}>{fmt(profit)}</td>
                             <td className={`num ${profit>=0?"gold":"loss"}`}>{fmtPct(rate)}</td>
                             <td><span className={`rank-badge rank-${p.rank}`}>{p.rank}</span></td>
-                            <td><button className="btn btn-edit" onClick={()=>{setEditId(p.id);setEditForm({...p});}}>編集</button></td>
+                            <td>
+                              <div style={{display:"flex",gap:6}}>
+                                {p.status!=="売上" && p.status!=="失注" && (
+                                  <button className="btn" onClick={()=>setSalesConfirmTarget(p)}
+                                    style={{padding:"5px 10px",fontSize:11,fontWeight:700,borderRadius:6,cursor:"pointer",
+                                      background:"var(--green-bg)",color:"var(--green)",border:"1.5px solid #6ee7b7"}}>
+                                    💰 売上
+                                  </button>
+                                )}
+                                <button className="btn btn-edit" onClick={()=>{setEditId(p.id);setEditForm({...p});}}>編集</button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -716,7 +762,7 @@ function App() {
                   <table>
                     <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
                     <tbody>
-                      {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||a.period.localeCompare(b.period)).map(g=>{
+                      {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||(a.period==="前期"?-1:1)-(b.period==="前期"?-1:1)).map(g=>{
                         const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
                         const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
                         const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
@@ -725,7 +771,7 @@ function App() {
                             <td style={{fontWeight:600}}>{mLabel}</td>
                             <td>
                               <span style={{display:"inline-block",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                                background:g.period==="前期"?var_gold_bg:"var(--green-bg)",
+                                background:g.period==="前期"?"var(--gold-bg)":"var(--green-bg)",
                                 color:g.period==="前期"?"var(--gold)":"var(--green)",
                                 border:`1px solid ${g.period==="前期"?"#fcd34d":"#6ee7b7"}`
                               }}>{g.period}</span>
@@ -763,17 +809,19 @@ function App() {
                     <tr>
                       <th rowSpan={3} style={{minWidth:80,position:"sticky",top:0,background:"var(--bg)",zIndex:11}}>月</th>
                       {/* 予算 */}
-                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（単位：千円 / 🔓で施錠）</span></th>
+                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（単位：千円）</span></th>
                       {/* 実績 */}
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"var(--bg)"}}>実　績</th>
                       {/* 売上見込 */}
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"var(--bg)"}}>売上見込</th>
-                      {/* ガス予実 */}
+                      {/* ガス */}
                       <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"#0891b2",background:"#f0f9ff"}}>ガス</th>
-                      {/* 器具工事予実 */}
+                      {/* 器具工事 */}
                       <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--accent)",background:"#f8faff"}}>器具工事</th>
-                      {/* 合計予実 */}
-                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"#f0fdf4"}}>合計</th>
+                      {/* 合計（見込） */}
+                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"#fffbeb"}}>合計（見込）</th>
+                      {/* 合計（実績） */}
+                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"#f0fdf4"}}>合計（実績）</th>
                     </tr>
                     <tr>
                       <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",top:0,position:"sticky"}}>ガス</th>
@@ -789,6 +837,8 @@ function App() {
                       <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
                       <th className="sub" style={{color:"var(--accent)",background:"#f8faff",top:0,position:"sticky"}}>予算比</th>
                       <th className="sub" style={{color:"var(--accent)",background:"#f8faff",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
+                      <th className="sub" style={{color:"var(--gold)",background:"#fffbeb",top:0,position:"sticky"}}>予算比</th>
+                      <th className="sub" style={{color:"var(--gold)",background:"#fffbeb",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
                       <th className="sub" style={{color:"var(--green)",background:"#f0fdf4",top:0,position:"sticky"}}>予算比</th>
                       <th className="sub" style={{color:"var(--green)",background:"#f0fdf4",top:0,position:"sticky"}}>達成率</th>
                     </tr>
@@ -807,14 +857,18 @@ function App() {
                         const fGas=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecast||0);},0);
                         const fKougu=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===k).reduce((t,p)=>t+p.sales,0);},0);
                         const fTotal=fGas+fKougu;
-                        return {bGas,bKougu,bTotal,aGas,aKougu,aTotal,fGas,fKougu,fTotal,dGas:aGas-bGas,dKougu:aKougu-bKougu,dTotal:aTotal-bTotal,
-                          rGas:bGas>0?(aGas/bGas)*100:null,rKougu:bKougu>0?(aKougu/bKougu)*100:null,rTotal:bTotal>0?(aTotal/bTotal)*100:null};
+                        return {bGas,bKougu,bTotal,aGas,aKougu,aTotal,fGas,fKougu,fTotal,
+                          dGas:aGas-bGas,dKougu:aKougu-bKougu,dFTotal:fTotal-bTotal,dATotal:aTotal-bTotal,
+                          rGas:bGas>0?(aGas/bGas)*100:null,rKougu:bKougu>0?(aKougu/bKougu)*100:null,
+                          rFTotal:bTotal>0?(fTotal/bTotal)*100:null,rATotal:bTotal>0?(aTotal/bTotal)*100:null};
                       };
                       const kami=calcGroup(KAMI),shimo=calcGroup(SHIMO);
-                      const total={bGas:kami.bGas+shimo.bGas,bKougu:kami.bKougu+shimo.bKougu,bTotal:kami.bTotal+shimo.bTotal,aGas:kami.aGas+shimo.aGas,aKougu:kami.aKougu+shimo.aKougu,aTotal:kami.aTotal+shimo.aTotal,fGas:kami.fGas+shimo.fGas,fKougu:kami.fKougu+shimo.fKougu,fTotal:kami.fTotal+shimo.fTotal,dGas:kami.dGas+shimo.dGas,dKougu:kami.dKougu+shimo.dKougu,dTotal:kami.dTotal+shimo.dTotal};
+                      const total={bGas:kami.bGas+shimo.bGas,bKougu:kami.bKougu+shimo.bKougu,bTotal:kami.bTotal+shimo.bTotal,aGas:kami.aGas+shimo.aGas,aKougu:kami.aKougu+shimo.aKougu,aTotal:kami.aTotal+shimo.aTotal,fGas:kami.fGas+shimo.fGas,fKougu:kami.fKougu+shimo.fKougu,fTotal:kami.fTotal+shimo.fTotal,dGas:kami.dGas+shimo.dGas,dKougu:kami.dKougu+shimo.dKougu};
+                      total.dFTotal=total.fTotal-total.bTotal; total.dATotal=total.aTotal-total.bTotal;
                       total.rGas=total.bGas>0?(total.aGas/total.bGas)*100:null;
                       total.rKougu=total.bKougu>0?(total.aKougu/total.bKougu)*100:null;
-                      total.rTotal=total.bTotal>0?(total.aTotal/total.bTotal)*100:null;
+                      total.rFTotal=total.bTotal>0?(total.fTotal/total.bTotal)*100:null;
+                      total.rATotal=total.bTotal>0?(total.aTotal/total.bTotal)*100:null;
                       const D=(diff,has)=>has?<span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.round(Math.abs(diff)/1000).toLocaleString()}千円</span>:<span style={{color:"var(--border2)"}}>—</span>;
                       const R=(rate,size=12)=>rate!==null?<span style={{fontFamily:"'DM Mono',monospace",fontSize:size,fontWeight:900,color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate.toFixed(1)}%</span>:"—";
                       const MonthRow=({label,year,month})=>{
@@ -827,12 +881,23 @@ function App() {
                         const fGas=gd.forecast||0;
                         const fKougu=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                         const fTotal=fGas+fKougu;
-                        const dGas=aGas-bGas,dKougu=aKougu-bKougu,dTotal=aTotal-bTotal;
-                        const rGas=bGas>0?(aGas/bGas)*100:null,rKougu=bKougu>0?(aKougu/bKougu)*100:null,rTotal=bTotal>0?(aTotal/bTotal)*100:null;
+                        const dGas=aGas-bGas,dKougu=aKougu-bKougu,dFTotal=fTotal-bTotal,dATotal=aTotal-bTotal;
+                        const rGas=bGas>0?(aGas/bGas)*100:null,rKougu=bKougu>0?(aKougu/bKougu)*100:null;
+                        const rFTotal=bTotal>0?(fTotal/bTotal)*100:null,rATotal=bTotal>0?(aTotal/bTotal)*100:null;
                         return(<tr key={key}>
                           <td style={{fontWeight:600}}>{label}</td>
-                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_gas"} locked={lockedGas} value={budgets[key+"_gas"]||0} onSave={handleBudget} onToggleLock={toggleBudgetLock}/></td>
-                          <td style={{background:"#f8fafc"}}><BudgetInput bkey={key+"_kougu"} locked={lockedKougu} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onToggleLock={toggleBudgetLock}/></td>
+                          <td style={{background:"#f8fafc"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:3}}>
+                              <BudgetInput bkey={key+"_gas"} locked={lockedGas} value={budgets[key+"_gas"]||0} onSave={handleBudget} onRequestUnlock={requestUnlock}/>
+                              {!lockedGas && <button tabIndex={-1} onClick={()=>lockBudget(key+"_gas")} title="施錠" style={{padding:"2px 5px",fontSize:11,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}
+                            </div>
+                          </td>
+                          <td style={{background:"#f8fafc"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:3}}>
+                              <BudgetInput bkey={key+"_kougu"} locked={lockedKougu} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onRequestUnlock={requestUnlock}/>
+                              {!lockedKougu && <button tabIndex={-1} onClick={()=>lockBudget(key+"_kougu")} title="施錠" style={{padding:"2px 5px",fontSize:11,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}
+                            </div>
+                          </td>
                           <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:bTotal>0?"var(--text2)":"var(--border2)"}}>{fmtK(bTotal)}</td>
                           <td className="num" style={{color:aGas>0?"#0891b2":"var(--border2)"}}>{fmtK(aGas)}</td>
                           <td className="num" style={{color:aKougu>0?"var(--accent)":"var(--border2)"}}>{fmtK(aKougu)}</td>
@@ -844,8 +909,10 @@ function App() {
                           <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(rGas)}</td>
                           <td style={{background:"#f8faff"}}>{D(dKougu,bKougu>0)}</td>
                           <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{R(rKougu)}</td>
-                          <td style={{background:"#f0fdf4"}}>{D(dTotal,bTotal>0)}</td>
-                          <td style={{background:"#f0fdf4"}}>{R(rTotal)}</td>
+                          <td style={{background:"#fffbeb"}}>{D(dFTotal,bTotal>0)}</td>
+                          <td style={{background:"#fffbeb",borderRight:"2px solid var(--border)"}}>{R(rFTotal)}</td>
+                          <td style={{background:"#f0fdf4"}}>{D(dATotal,bTotal>0)}</td>
+                          <td style={{background:"#f0fdf4"}}>{R(rATotal)}</td>
                         </tr>);
                       };
                       const SummaryRow=({label,g,bg,borderTop,isTotal})=>(<tr style={{background:bg,borderTop:borderTop||"none"}}>
@@ -863,8 +930,10 @@ function App() {
                         <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(g.rGas,isTotal?14:12)}</td>
                         <td style={{background:"#f8faff"}}>{D(g.dKougu,g.bKougu>0)}</td>
                         <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{R(g.rKougu,isTotal?14:12)}</td>
-                        <td style={{background:"#f0fdf4"}}>{D(g.dTotal,g.bTotal>0)}</td>
-                        <td style={{background:"#f0fdf4"}}>{R(g.rTotal,isTotal?15:13)}</td>
+                        <td style={{background:"#fffbeb"}}>{D(g.dFTotal,g.bTotal>0)}</td>
+                        <td style={{background:"#fffbeb",borderRight:"2px solid var(--border)"}}>{R(g.rFTotal,isTotal?14:12)}</td>
+                        <td style={{background:"#f0fdf4"}}>{D(g.dATotal,g.bTotal>0)}</td>
+                        <td style={{background:"#f0fdf4"}}>{R(g.rATotal,isTotal?15:13)}</td>
                       </tr>);
                       return(<>
                         {KAMI.map(m=><MonthRow key={monthKey(m.year,m.month)} {...m}/>)}
@@ -876,6 +945,67 @@ function App() {
                     })()}
                   </tbody>
                 </table>
+              </div>
+              <div style={{marginTop:32}}>
+                <div className="section-title">月別 予実グラフ</div>
+                <div className="card" style={{overflowX:"auto"}}>
+                  <div style={{minWidth:900}}>
+                    {(()=>{
+                      const maxVal = Math.max(...FISCAL_MONTHS.map(({year,month})=>{
+                        const key=monthKey(year,month),gd=gasMonthly[key];
+                        const b=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
+                        const a=(gd.hasActual?gd.actual:0)+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                        const f=(gd.forecast||0)+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                        return Math.max(b,a+f);
+                      }),1);
+                      const H=180;
+                      return (
+                        <svg viewBox={`0 0 ${FISCAL_MONTHS.length*70+40} ${H+60}`} style={{width:"100%",height:"auto"}}>
+                          {/* Y軸目盛 */}
+                          {[0,.25,.5,.75,1].map(r=>{
+                            const y=H-r*H+10;
+                            return (<g key={r}>
+                              <line x1={30} y1={y} x2={FISCAL_MONTHS.length*70+30} y2={y} stroke="#e2e6ed" strokeWidth={1}/>
+                              <text x={28} y={y+4} textAnchor="end" fontSize={9} fill="#8a96aa">{Math.round(maxVal*r/1000)}千</text>
+                            </g>);
+                          })}
+                          {FISCAL_MONTHS.map(({label,year,month},i)=>{
+                            const key=monthKey(year,month),gd=gasMonthly[key];
+                            const bTotal=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
+                            const aTotal=(gd.hasActual?gd.actual:0)+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                            const fTotal=(gd.forecast||0)+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                            const x=i*70+35;
+                            const bH=bTotal>0?Math.max((bTotal/maxVal)*H,2):0;
+                            const aH=aTotal>0?Math.max((aTotal/maxVal)*H,2):0;
+                            const fH=fTotal>0?Math.max((fTotal/maxVal)*H,2):0;
+                            const combined=aH+fH;
+                            const shortLabel=label.replace("2026年","").replace("2027年","");
+                            return (
+                              <g key={key}>
+                                {/* 予算バー */}
+                                {bH>0&&<rect x={x-20} y={H-bH+10} width={14} height={bH} fill="#bfdbfe" rx={2}/>}
+                                {/* 実績バー（下部・緑） */}
+                                {aH>0&&<rect x={x-2} y={H-combined+10} width={14} height={aH} fill="#059669" rx={aH===combined?2:0}/>}
+                                {/* 見込バー（上部・グレー） */}
+                                {fH>0&&<rect x={x-2} y={H-combined+10} width={14} height={fH} fill="#cbd5e1" rx={2}/>}
+                                {/* 実績はグレーの下に重ねる */}
+                                {aH>0&&fH>0&&<rect x={x-2} y={H-aH+10} width={14} height={aH} fill="#059669"/>}
+                                {/* ラベル */}
+                                <text x={x+5} y={H+24} textAnchor="middle" fontSize={9} fill="#4a5568">{shortLabel}</text>
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      );
+                    })()}
+                    {/* 凡例 */}
+                    <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4,fontSize:11,color:"var(--text2)"}}>
+                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#bfdbfe" rx={2}/></svg>予算</span>
+                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#059669" rx={2}/></svg>実績</span>
+                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#cbd5e1" rx={2}/></svg>見込</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div style={{marginTop:32}}>
                 <div className="section-title">物件一覧サマリー</div>
@@ -938,6 +1068,63 @@ function App() {
         </div>
       )}
 
+      {/* 売上確認モーダル */}
+      {salesConfirmTarget && (
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget) setSalesConfirmTarget(null);}}>
+          <div className="modal" style={{maxWidth:480}}>
+            <div className="modal-title">💰 売上確定</div>
+            <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.8,marginBottom:20}}>
+              以下の物件を <strong style={{color:"var(--green)"}}>「売上」</strong> に変更します。<br/>
+              売上管理表の実績に反映されます。
+            </div>
+            <div style={{background:"var(--bg)",border:"1px solid var(--border)",borderRadius:10,padding:"16px 18px",marginBottom:20}}>
+              <div style={{fontWeight:700,fontSize:14,marginBottom:8}}>{salesConfirmTarget.name}</div>
+              <div style={{display:"flex",gap:20,fontSize:12,color:"var(--text2)"}}>
+                <span>📅 {salesConfirmTarget.date}</span>
+                <span>👤 {salesConfirmTarget.staff||"—"}</span>
+                <span>💴 {fmt(salesConfirmTarget.sales)}</span>
+              </div>
+              <div style={{marginTop:8,fontSize:12}}>
+                <span className={`status-badge status-${salesConfirmTarget.status}`}>{salesConfirmTarget.status}</span>
+                <span style={{margin:"0 8px",color:"var(--muted)"}}>→</span>
+                <span className="status-badge status-売上">売上</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button className="btn btn-secondary" onClick={()=>setSalesConfirmTarget(null)}>キャンセル</button>
+              <button className="btn" onClick={handleSalesConfirm}
+                style={{background:"var(--green)",color:"#fff",padding:"9px 24px",fontSize:13,fontWeight:700,borderRadius:8}}>
+                ✓ 売上確定する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 暗証番号モーダル */}
+      {pinModal && (
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget){setPinModal(null);setPinInput("");setPinError(false);}}}>
+          <div className="modal" style={{maxWidth:360}}>
+            <div className="modal-title">🔒 予算ロック解除</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:16}}>暗証番号を入力してください。</div>
+            <input
+              type="password"
+              value={pinInput}
+              onChange={e=>{setPinInput(e.target.value);setPinError(false);}}
+              onKeyDown={e=>e.key==="Enter"&&confirmPin()}
+              placeholder="暗証番号"
+              autoFocus
+              style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1.5px solid ${pinError?"var(--red)":"var(--border)"}`,fontSize:18,textAlign:"center",letterSpacing:8,outline:"none",fontFamily:"'DM Mono',monospace",marginBottom:8}}
+            />
+            {pinError && <div style={{color:"var(--red)",fontSize:12,marginBottom:8,textAlign:"center"}}>暗証番号が違います</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+              <button className="btn btn-secondary" onClick={()=>{setPinModal(null);setPinInput("");setPinError(false);}}>キャンセル</button>
+              <button className="btn btn-primary" onClick={confirmPin}>解除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ガス削除確認モーダル */}
       {gasDeleteTarget && (
         <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget){setGasDeleteTarget(null);setGasDeleteInput("");}}}>
@@ -960,9 +1147,6 @@ function App() {
     </>
   );
 }
-
-// CSS変数をJSから参照するためのヘルパー
-const var_gold_bg = "var(--gold-bg)";
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
