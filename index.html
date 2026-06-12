@@ -948,50 +948,84 @@ function App() {
               </div>
               <div style={{marginTop:32}}>
                 <div className="section-title">月別 予実グラフ</div>
-                <div className="card" style={{overflowX:"auto"}}>
-                  <div style={{minWidth:900}}>
+                <div className="card" style={{overflowX:"auto",padding:"20px 16px 12px"}}>
+                  <div style={{minWidth:860}}>
                     {(()=>{
-                      const maxVal = Math.max(...FISCAL_MONTHS.map(({year,month})=>{
+                      // 各月のデータ集計
+                      const monthData = FISCAL_MONTHS.map(({label,year,month})=>{
                         const key=monthKey(year,month),gd=gasMonthly[key];
                         const b=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
                         const a=(gd.hasActual?gd.actual:0)+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                         const f=(gd.forecast||0)+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                        return Math.max(b,a+f);
-                      }),1);
-                      const H=180;
+                        const shortLabel=label.replace("2026年","").replace("2027年","");
+                        return {key,label,shortLabel,b,a,f};
+                      });
+
+                      // Y軸最大値を1000千円（=100万円）刻みのキリ番に
+                      const rawMax = Math.max(...monthData.map(d=>Math.max(d.b, d.a+d.f)), 1000000);
+                      const step = 1000000; // 1000千円刻み
+                      const maxVal = Math.ceil(rawMax / step) * step;
+                      const ySteps = Math.round(maxVal / step);
+
+                      const H = 200;   // グラフ高さ
+                      const PL = 70;   // 左余白（Y軸ラベル用）
+                      const PR = 20;   // 右余白
+                      const barW = 16; // バー幅
+                      const colW = Math.max(60, Math.floor((860 - PL - PR) / FISCAL_MONTHS.length));
+                      const W = PL + colW * FISCAL_MONTHS.length + PR;
+                      const PT = 20;   // 上余白
+                      const PB = 36;   // 下余白（ラベル用）
+
                       return (
-                        <svg viewBox={`0 0 ${FISCAL_MONTHS.length*70+40} ${H+60}`} style={{width:"100%",height:"auto"}}>
-                          {/* Y軸目盛 */}
-                          {[0,.25,.5,.75,1].map(r=>{
-                            const y=H-r*H+10;
-                            return (<g key={r}>
-                              <line x1={30} y1={y} x2={FISCAL_MONTHS.length*70+30} y2={y} stroke="#e2e6ed" strokeWidth={1}/>
-                              <text x={28} y={y+4} textAnchor="end" fontSize={9} fill="#8a96aa">{Math.round(maxVal*r/1000)}千</text>
-                            </g>);
+                        <svg viewBox={`0 0 ${W} ${H+PT+PB}`} style={{width:"100%",height:"auto"}}>
+                          {/* Y軸目盛線とラベル */}
+                          {Array.from({length:ySteps+1},(_,i)=>{
+                            const v = i * step;
+                            const y = PT + H - (v/maxVal)*H;
+                            return (
+                              <g key={i}>
+                                <line x1={PL} y1={y} x2={W-PR} y2={y} stroke={i===0?"#cbd5e1":"#e2e6ed"} strokeWidth={i===0?1.5:1}/>
+                                <text x={PL-6} y={y+4} textAnchor="end" fontSize={10} fill="#8a96aa" fontFamily="DM Mono, monospace">
+                                  {Math.round(v/1000).toLocaleString()}千
+                                </text>
+                              </g>
+                            );
                           })}
-                          {FISCAL_MONTHS.map(({label,year,month},i)=>{
-                            const key=monthKey(year,month),gd=gasMonthly[key];
-                            const bTotal=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
-                            const aTotal=(gd.hasActual?gd.actual:0)+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                            const fTotal=(gd.forecast||0)+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                            const x=i*70+35;
-                            const bH=bTotal>0?Math.max((bTotal/maxVal)*H,2):0;
-                            const aH=aTotal>0?Math.max((aTotal/maxVal)*H,2):0;
-                            const fH=fTotal>0?Math.max((fTotal/maxVal)*H,2):0;
-                            const combined=aH+fH;
-                            const shortLabel=label.replace("2026年","").replace("2027年","");
+
+                          {/* 各月のバー */}
+                          {monthData.map(({key,shortLabel,b,a,f},i)=>{
+                            const cx = PL + i*colW + colW/2;
+                            const bH = b>0 ? Math.max((b/maxVal)*H, 2) : 0;
+                            const aH = a>0 ? Math.max((a/maxVal)*H, 2) : 0;
+                            const fH = f>0 ? Math.max((f/maxVal)*H, 2) : 0;
+                            // 積み上げ：下=実績（緑）、上=見込（グレー）
+                            const stackH = aH + fH;
+                            const baseY = PT + H; // グラフ底辺
+
                             return (
                               <g key={key}>
-                                {/* 予算バー */}
-                                {bH>0&&<rect x={x-20} y={H-bH+10} width={14} height={bH} fill="#bfdbfe" rx={2}/>}
-                                {/* 実績バー（下部・緑） */}
-                                {aH>0&&<rect x={x-2} y={H-combined+10} width={14} height={aH} fill="#059669" rx={aH===combined?2:0}/>}
+                                {/* 予算バー（左） */}
+                                {bH>0 && (
+                                  <rect x={cx-barW-3} y={baseY-bH} width={barW} height={bH}
+                                    fill="#bfdbfe" stroke="#93c5fd" strokeWidth={0.5} rx={2}/>
+                                )}
                                 {/* 見込バー（上部・グレー） */}
-                                {fH>0&&<rect x={x-2} y={H-combined+10} width={14} height={fH} fill="#cbd5e1" rx={2}/>}
-                                {/* 実績はグレーの下に重ねる */}
-                                {aH>0&&fH>0&&<rect x={x-2} y={H-aH+10} width={14} height={aH} fill="#059669"/>}
-                                {/* ラベル */}
-                                <text x={x+5} y={H+24} textAnchor="middle" fontSize={9} fill="#4a5568">{shortLabel}</text>
+                                {fH>0 && (
+                                  <rect x={cx+3} y={baseY-stackH} width={barW} height={fH}
+                                    fill="#cbd5e1" stroke="#9ca3af" strokeWidth={0.5}
+                                    rx={aH===0?2:0}
+                                    style={{borderRadius: aH===0?"2px 2px 0 0":"0"}}
+                                  />
+                                )}
+                                {/* 実績バー（下部・緑） */}
+                                {aH>0 && (
+                                  <rect x={cx+3} y={baseY-aH} width={barW} height={aH}
+                                    fill="#059669" stroke="#047857" strokeWidth={0.5}
+                                    rx={fH===0?2:0}
+                                  />
+                                )}
+                                {/* 月ラベル */}
+                                <text x={cx} y={baseY+16} textAnchor="middle" fontSize={10} fill="#4a5568">{shortLabel}</text>
                               </g>
                             );
                           })}
@@ -999,10 +1033,16 @@ function App() {
                       );
                     })()}
                     {/* 凡例 */}
-                    <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:4,fontSize:11,color:"var(--text2)"}}>
-                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#bfdbfe" rx={2}/></svg>予算</span>
-                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#059669" rx={2}/></svg>実績</span>
-                      <span><svg width={12} height={12} style={{verticalAlign:"middle",marginRight:4}}><rect width={12} height={12} fill="#cbd5e1" rx={2}/></svg>見込</span>
+                    <div style={{display:"flex",gap:20,justifyContent:"center",marginTop:8,fontSize:12,color:"var(--text2)"}}>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}>
+                        <svg width={14} height={14}><rect width={14} height={14} fill="#bfdbfe" stroke="#93c5fd" strokeWidth={0.5} rx={2}/></svg>予算
+                      </span>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}>
+                        <svg width={14} height={14}><rect width={14} height={14} fill="#059669" rx={2}/></svg>実績（下）
+                      </span>
+                      <span style={{display:"flex",alignItems:"center",gap:5}}>
+                        <svg width={14} height={14}><rect width={14} height={14} fill="#cbd5e1" stroke="#9ca3af" strokeWidth={0.5} rx={2}/></svg>見込（上）
+                      </span>
                     </div>
                   </div>
                 </div>
