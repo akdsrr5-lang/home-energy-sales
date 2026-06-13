@@ -364,18 +364,27 @@ function BudgetInput({ bkey, locked, value, onSave, onRequestUnlock }) {
     <div style={{display:"flex",alignItems:"center",gap:4}}>
       <input
         className="budget-input"
-        type="number"
+        type={locked ? "text" : "number"}
         value={local}
         placeholder="千円入力"
-        disabled={locked}
+        readOnly={locked}
         onClick={()=>{ if(locked) onRequestUnlock(bkey); }}
-        onChange={e => setLocal(e.target.value)}
+        onChange={e => { if(!locked) setLocal(e.target.value); }}
         onBlur={e => { if(!locked) onSave(bkey, e.target.value); }}
-        style={{opacity:locked?0.6:1, cursor:locked?"pointer":"text", width:110,
-          background:locked?"#f1f5f9":"var(--bg)"}}
-        title={locked?"クリックして編集（暗証番号が必要）":""}
+        style={{
+          opacity: 1,
+          cursor: locked ? "pointer" : "text",
+          width: 110,
+          background: locked ? "#f1f5f9" : "var(--bg)",
+          color: locked ? "var(--muted)" : "var(--text)",
+          userSelect: locked ? "none" : "auto",
+        }}
+        title={locked ? "🔒 クリックして解除（暗証番号が必要）" : ""}
       />
-      {locked && <span style={{fontSize:10,color:"var(--muted)"}}>🔒</span>}
+      {locked && (
+        <span onClick={()=>onRequestUnlock(bkey)}
+          style={{fontSize:13,cursor:"pointer",userSelect:"none"}} title="クリックして解除">🔒</span>
+      )}
     </div>
   );
 }
@@ -951,7 +960,6 @@ function App() {
                 <div className="card" style={{overflowX:"auto",padding:"20px 16px 12px"}}>
                   <div style={{minWidth:860}}>
                     {(()=>{
-                      // 各月のデータ集計
                       const monthData = FISCAL_MONTHS.map(({label,year,month})=>{
                         const key=monthKey(year,month),gd=gasMonthly[key];
                         const b=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
@@ -961,71 +969,81 @@ function App() {
                         return {key,label,shortLabel,b,a,f};
                       });
 
-                      // Y軸最大値を1000千円（=100万円）刻みのキリ番に
                       const rawMax = Math.max(...monthData.map(d=>Math.max(d.b, d.a+d.f)), 1000000);
-                      const step = 1000000; // 1000千円刻み
+                      const step = 1000000;
                       const maxVal = Math.ceil(rawMax / step) * step;
-                      const ySteps = Math.round(maxVal / step);
 
-                      const H = 200;   // グラフ高さ
-                      const PL = 70;   // 左余白（Y軸ラベル用）
-                      const PR = 20;   // 右余白
-                      const barW = 16; // バー幅
-                      const colW = Math.max(60, Math.floor((860 - PL - PR) / FISCAL_MONTHS.length));
-                      const W = PL + colW * FISCAL_MONTHS.length + PR;
-                      const PT = 20;   // 上余白
-                      const PB = 36;   // 下余白（ラベル用）
+                      const H   = 180;
+                      const PL  = 10;
+                      const PR  = 10;
+                      const barW = 18;
+                      const colW = Math.max(64, Math.floor((860 - PL - PR) / FISCAL_MONTHS.length));
+                      const W   = PL + colW * FISCAL_MONTHS.length + PR;
+                      const PT  = 56; // 上余白：差額・達成率テキスト用
+                      const PB  = 32;
 
                       return (
                         <svg viewBox={`0 0 ${W} ${H+PT+PB}`} style={{width:"100%",height:"auto"}}>
-                          {/* Y軸目盛線とラベル */}
-                          {Array.from({length:ySteps+1},(_,i)=>{
-                            const v = i * step;
-                            const y = PT + H - (v/maxVal)*H;
-                            return (
-                              <g key={i}>
-                                <line x1={PL} y1={y} x2={W-PR} y2={y} stroke={i===0?"#cbd5e1":"#e2e6ed"} strokeWidth={i===0?1.5:1}/>
-                                <text x={PL-6} y={y+4} textAnchor="end" fontSize={10} fill="#8a96aa" fontFamily="DM Mono, monospace">
-                                  {Math.round(v/1000).toLocaleString()}千
-                                </text>
-                              </g>
-                            );
-                          })}
+                          {/* ベースライン */}
+                          <line x1={PL} y1={PT+H} x2={W-PR} y2={PT+H} stroke="#cbd5e1" strokeWidth={1.5}/>
+                          {/* 補助線（25%・50%・75%） */}
+                          {[0.25,0.5,0.75].map(r=>(
+                            <line key={r} x1={PL} y1={PT+H-r*H} x2={W-PR} y2={PT+H-r*H} stroke="#f1f5f9" strokeWidth={1}/>
+                          ))}
 
-                          {/* 各月のバー */}
                           {monthData.map(({key,shortLabel,b,a,f},i)=>{
-                            const cx = PL + i*colW + colW/2;
-                            const bH = b>0 ? Math.max((b/maxVal)*H, 2) : 0;
-                            const aH = a>0 ? Math.max((a/maxVal)*H, 2) : 0;
-                            const fH = f>0 ? Math.max((f/maxVal)*H, 2) : 0;
-                            // 積み上げ：下=実績（緑）、上=見込（グレー）
+                            const cx  = PL + i*colW + colW/2;
+                            const bH  = b>0 ? Math.max((b/maxVal)*H, 2) : 0;
+                            const aH  = a>0 ? Math.max((a/maxVal)*H, 2) : 0;
+                            const fH  = f>0 ? Math.max((f/maxVal)*H, 2) : 0;
                             const stackH = aH + fH;
-                            const baseY = PT + H; // グラフ底辺
+                            const baseY  = PT + H;
+                            const topY   = baseY - Math.max(bH, stackH);
+
+                            // 達成率・差額
+                            const diff  = a - b;
+                            const rate  = b > 0 ? Math.round((a/b)*100) : null;
+                            const fRate = b > 0 ? Math.round(((a+f)/b)*100) : null;
+                            const diffK = Math.round(Math.abs(diff)/1000);
+                            const diffText = b>0 ? (diff>=0?`▲${diffK.toLocaleString()}千`:`▼${diffK.toLocaleString()}千`) : "";
+                            const diffColor = diff>=0?"#059669":"#dc2626";
+                            const rateColor = rate===null?"#8a96aa":rate>=100?"#059669":rate>=80?"#d97706":"#dc2626";
 
                             return (
                               <g key={key}>
-                                {/* 予算バー（左） */}
+                                {/* 実績達成率（一番上） */}
+                                {rate!==null && (
+                                  <text x={cx} y={topY-32} textAnchor="middle" fontSize={10} fontWeight="800"
+                                    fill={rateColor} fontFamily="DM Mono, monospace">{rate}%</text>
+                                )}
+                                {/* 差額 */}
+                                {diffText && (
+                                  <text x={cx} y={topY-19} textAnchor="middle" fontSize={9}
+                                    fill={diffColor} fontFamily="DM Mono, monospace">{diffText}</text>
+                                )}
+                                {/* 見込達成率（薄グレー） */}
+                                {fRate!==null && f>0 && (
+                                  <text x={cx} y={topY-7} textAnchor="middle" fontSize={8.5}
+                                    fill="#9ca3af" fontFamily="DM Mono, monospace">見{fRate}%</text>
+                                )}
+
+                                {/* 予算バー（左・濃い青） */}
                                 {bH>0 && (
-                                  <rect x={cx-barW-3} y={baseY-bH} width={barW} height={bH}
-                                    fill="#bfdbfe" stroke="#93c5fd" strokeWidth={0.5} rx={2}/>
+                                  <rect x={cx-barW-2} y={baseY-bH} width={barW} height={bH}
+                                    fill="#1d4ed8" rx={2}/>
                                 )}
-                                {/* 見込バー（上部・グレー） */}
+                                {/* 見込バー（上・グレー） */}
                                 {fH>0 && (
-                                  <rect x={cx+3} y={baseY-stackH} width={barW} height={fH}
-                                    fill="#cbd5e1" stroke="#9ca3af" strokeWidth={0.5}
-                                    rx={aH===0?2:0}
-                                    style={{borderRadius: aH===0?"2px 2px 0 0":"0"}}
-                                  />
+                                  <rect x={cx+2} y={baseY-stackH} width={barW} height={fH}
+                                    fill="#cbd5e1" rx={aH===0?2:0}/>
                                 )}
-                                {/* 実績バー（下部・緑） */}
+                                {/* 実績バー（下・緑） */}
                                 {aH>0 && (
-                                  <rect x={cx+3} y={baseY-aH} width={barW} height={aH}
-                                    fill="#059669" stroke="#047857" strokeWidth={0.5}
-                                    rx={fH===0?2:0}
-                                  />
+                                  <rect x={cx+2} y={baseY-aH} width={barW} height={aH}
+                                    fill="#059669" rx={fH===0?2:0}/>
                                 )}
                                 {/* 月ラベル */}
-                                <text x={cx} y={baseY+16} textAnchor="middle" fontSize={10} fill="#4a5568">{shortLabel}</text>
+                                <text x={cx} y={baseY+18} textAnchor="middle" fontSize={10} fill="#4a5568">{shortLabel}</text>
                               </g>
                             );
                           })}
@@ -1033,16 +1051,18 @@ function App() {
                       );
                     })()}
                     {/* 凡例 */}
-                    <div style={{display:"flex",gap:20,justifyContent:"center",marginTop:8,fontSize:12,color:"var(--text2)"}}>
+                    <div style={{display:"flex",gap:20,justifyContent:"center",marginTop:4,fontSize:11,color:"var(--text2)"}}>
                       <span style={{display:"flex",alignItems:"center",gap:5}}>
-                        <svg width={14} height={14}><rect width={14} height={14} fill="#bfdbfe" stroke="#93c5fd" strokeWidth={0.5} rx={2}/></svg>予算
+                        <svg width={12} height={12}><rect width={12} height={12} fill="#1d4ed8" rx={2}/></svg>予算
                       </span>
                       <span style={{display:"flex",alignItems:"center",gap:5}}>
-                        <svg width={14} height={14}><rect width={14} height={14} fill="#059669" rx={2}/></svg>実績（下）
+                        <svg width={12} height={12}><rect width={12} height={12} fill="#059669" rx={2}/></svg>実績（下）
                       </span>
                       <span style={{display:"flex",alignItems:"center",gap:5}}>
-                        <svg width={14} height={14}><rect width={14} height={14} fill="#cbd5e1" stroke="#9ca3af" strokeWidth={0.5} rx={2}/></svg>見込（上）
+                        <svg width={12} height={12}><rect width={12} height={12} fill="#cbd5e1" rx={2}/></svg>見込（上）
                       </span>
+                      <span style={{display:"flex",alignItems:"center",gap:5,color:"#059669",fontWeight:700}}>実績達成率</span>
+                      <span style={{display:"flex",alignItems:"center",gap:5,color:"#9ca3af"}}>見込達成率（見XX%）</span>
                     </div>
                   </div>
                 </div>
