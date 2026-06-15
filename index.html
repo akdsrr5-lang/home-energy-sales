@@ -520,7 +520,7 @@ function App() {
   const filtered = (() => {
     let list = filter==="all" ? properties : properties.filter(p=>p.status===filter);
     if(staffFilter!=="all") list = list.filter(p=>p.staff===staffFilter);
-    return list;
+    return [...list].sort((a,b)=>new Date(a.date)-new Date(b.date));
   })();
 
   const gasMonthly = FISCAL_MONTHS.reduce((acc,{year,month})=>{
