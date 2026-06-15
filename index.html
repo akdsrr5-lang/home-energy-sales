@@ -323,22 +323,23 @@ const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val))
 function gasLoad() {
   return fetch(GAS_URL + '?action=load').then(r => r.json());
 }
-// スプレッドシートへ保存（GETメソッド）
+// スプレッドシートへ保存（POST・no-cors）
 function gasSave(properties, budgets, gas, locks) {
-  const url = GAS_URL
-    + '?action=save'
-    + '&properties=' + encodeURIComponent(JSON.stringify(properties))
-    + '&budgets='    + encodeURIComponent(JSON.stringify(budgets))
-    + '&gas='        + encodeURIComponent(JSON.stringify(gas))
-    + '&locks='      + encodeURIComponent(JSON.stringify(locks||{}));
-  return fetch(url);
+  // 各データを個別にGETで保存（URL長を分割）
+  const baseUrl = GAS_URL + '?action=save_each';
+  return fetch(baseUrl
+    + '&key=properties&val=' + encodeURIComponent(JSON.stringify(properties))
+  ).then(()=>fetch(baseUrl
+    + '&key=budgets&val=' + encodeURIComponent(JSON.stringify(budgets))
+  )).then(()=>fetch(baseUrl
+    + '&key=gas&val=' + encodeURIComponent(JSON.stringify(gas))
+  ));
 }
 // ロックだけ保存
 function saveLocks(locks) {
-  const url = GAS_URL
-    + '?action=save_locks'
-    + '&locks=' + encodeURIComponent(JSON.stringify(locks));
-  return fetch(url);
+  return fetch(GAS_URL
+    + '?action=save_each&key=locks&val=' + encodeURIComponent(JSON.stringify(locks))
+  );
 }
 
 function StaffToggle({ value, onChange, options }) {
