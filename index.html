@@ -542,7 +542,7 @@ function App() {
   },{});
   const monthlyForecast = FISCAL_MONTHS.reduce((acc,{year,month})=>{
     const key=monthKey(year,month);
-    acc[key]=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0)+(gasMonthly[key].forecast||0);
+    acc[key]=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注"||p.status==="売上")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0)+(gasMonthly[key].forecast||0);
     return acc;
   },{});
   const totalBudget   = FISCAL_MONTHS.reduce((s,{year,month})=>s+(budgets[monthKey(year,month)]||0),0);
@@ -864,23 +864,42 @@ function App() {
                         const aGas=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.hasActual?gd.actual:0);},0);
                         const aKougu=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===k).reduce((t,p)=>t+p.sales,0);},0);
                         const aTotal=aGas+aKougu;
-                        const fGas=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecast||0);},0);
-                        const fKougu=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===k).reduce((t,p)=>t+p.sales,0);},0);
+                        // 見込み＝見積A＋受注＋売上（減らさない）
+                        const fGas=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecast||0)+(gd.hasActual?gd.actual:0);},0);
+                        const fKougu=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>["見積","受注","売上"].includes(p.status)&&(p.status!=="見積"||(p.status==="見積"&&p.rank==="A"))&&dateToMK(p.date)===k).reduce((t,p)=>t+p.sales,0);},0);
                         const fTotal=fGas+fKougu;
-                        return {bGas,bKougu,bTotal,aGas,aKougu,aTotal,fGas,fKougu,fTotal,
+                        // 残＝見込合計－実績
+                        const rmnGas=fGas-aGas, rmnKougu=fKougu-aKougu, rmnTotal=fTotal-aTotal;
+                        return {bGas,bKougu,bTotal,aGas,aKougu,aTotal,fGas,fKougu,fTotal,rmnGas,rmnKougu,rmnTotal,
                           dGas:aGas-bGas,dKougu:aKougu-bKougu,dFTotal:fTotal-bTotal,dATotal:aTotal-bTotal,
                           rGas:bGas>0?(aGas/bGas)*100:null,rKougu:bKougu>0?(aKougu/bKougu)*100:null,
                           rFTotal:bTotal>0?(fTotal/bTotal)*100:null,rATotal:bTotal>0?(aTotal/bTotal)*100:null};
                       };
                       const kami=calcGroup(KAMI),shimo=calcGroup(SHIMO);
-                      const total={bGas:kami.bGas+shimo.bGas,bKougu:kami.bKougu+shimo.bKougu,bTotal:kami.bTotal+shimo.bTotal,aGas:kami.aGas+shimo.aGas,aKougu:kami.aKougu+shimo.aKougu,aTotal:kami.aTotal+shimo.aTotal,fGas:kami.fGas+shimo.fGas,fKougu:kami.fKougu+shimo.fKougu,fTotal:kami.fTotal+shimo.fTotal,dGas:kami.dGas+shimo.dGas,dKougu:kami.dKougu+shimo.dKougu};
+                      const total={bGas:kami.bGas+shimo.bGas,bKougu:kami.bKougu+shimo.bKougu,bTotal:kami.bTotal+shimo.bTotal,aGas:kami.aGas+shimo.aGas,aKougu:kami.aKougu+shimo.aKougu,aTotal:kami.aTotal+shimo.aTotal,fGas:kami.fGas+shimo.fGas,fKougu:kami.fKougu+shimo.fKougu,fTotal:kami.fTotal+shimo.fTotal,rmnGas:kami.rmnGas+shimo.rmnGas,rmnKougu:kami.rmnKougu+shimo.rmnKougu,rmnTotal:kami.rmnTotal+shimo.rmnTotal,dGas:kami.dGas+shimo.dGas,dKougu:kami.dKougu+shimo.dKougu};
                       total.dFTotal=total.fTotal-total.bTotal; total.dATotal=total.aTotal-total.bTotal;
                       total.rGas=total.bGas>0?(total.aGas/total.bGas)*100:null;
                       total.rKougu=total.bKougu>0?(total.aKougu/total.bKougu)*100:null;
                       total.rFTotal=total.bTotal>0?(total.fTotal/total.bTotal)*100:null;
                       total.rATotal=total.bTotal>0?(total.aTotal/total.bTotal)*100:null;
+                      const SFC = (fVal,aVal,size=12) => {
+                        const rmn=fVal-aVal;
+                        return (<div style={{textAlign:"right",lineHeight:1.4}}>
+                          <div style={{fontFamily:"'DM Mono',monospace",fontSize:size,color:"var(--gold)",fontWeight:700}}>{fVal>0?fmtK(fVal):"—"}</div>
+                          {fVal>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:size-2,color:rmn>0?"#0891b2":rmn<0?"var(--red)":"var(--muted)"}}>残:{fmtK(Math.max(rmn,0))}</div>}
+                        </div>);
+                      };
                       const D=(diff,has)=>has?<span className={diff>0?"diff-pos":diff<0?"diff-neg":"diff-zero"}>{(diff>0?"▲ ":diff<0?"▼ ":"")+Math.round(Math.abs(diff)/1000).toLocaleString()}千円</span>:<span style={{color:"var(--border2)"}}>—</span>;
                       const R=(rate,size=12)=>rate!==null?<span style={{fontFamily:"'DM Mono',monospace",fontSize:size,fontWeight:900,color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate.toFixed(1)}%</span>:"—";
+                      const FCell = (fVal, aVal) => {
+                        const rmn = fVal - aVal;
+                        return (
+                          <div style={{textAlign:"right",lineHeight:1.4}}>
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:fVal>0?"var(--gold)":"var(--border2)",fontWeight:600}}>{fVal>0?fmtK(fVal):"—"}</div>
+                            {fVal>0 && <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:rmn>0?"#0891b2":rmn<0?"var(--red)":"var(--muted)"}}>残:{fmtK(Math.max(rmn,0))}</div>}
+                          </div>
+                        );
+                      };
                       const MonthRow=({label,year,month})=>{
                         const key=monthKey(year,month),gd=gasMonthly[key];
                         const bGas=budgetYen(key+"_gas"),bKougu=budgetYen(key+"_kougu"),bTotal=bGas+bKougu;
@@ -888,9 +907,11 @@ function App() {
                         const aGas=gd.hasActual?gd.actual:0;
                         const aKougu=properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                         const aTotal=aGas+aKougu;
-                        const fGas=gd.forecast||0;
-                        const fKougu=properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                        // 見込み＝見積A＋受注＋売上（減らさない）
+                        const fGas=(gd.forecast||0)+(gd.hasActual?gd.actual:0);
+                        const fKougu=properties.filter(p=>["見積","受注","売上"].includes(p.status)&&(p.status!=="見積"||(p.status==="見積"&&p.rank==="A"))&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                         const fTotal=fGas+fKougu;
+                        const rmnGas=fGas-aGas, rmnKougu=fKougu-aKougu, rmnTotal=fTotal-aTotal;
                         const dGas=aGas-bGas,dKougu=aKougu-bKougu,dFTotal=fTotal-bTotal,dATotal=aTotal-bTotal;
                         const rGas=bGas>0?(aGas/bGas)*100:null,rKougu=bKougu>0?(aKougu/bKougu)*100:null;
                         const rFTotal=bTotal>0?(fTotal/bTotal)*100:null,rATotal=bTotal>0?(aTotal/bTotal)*100:null;
@@ -912,9 +933,9 @@ function App() {
                           <td className="num" style={{color:aGas>0?"#0891b2":"var(--border2)"}}>{fmtK(aGas)}</td>
                           <td className="num" style={{color:aKougu>0?"var(--accent)":"var(--border2)"}}>{fmtK(aKougu)}</td>
                           <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:aTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(aTotal)}</td>
-                          <td className="num" style={{color:fGas>0?"#0891b2":"var(--border2)"}}>{fmtK(fGas)}</td>
-                          <td className="num" style={{color:fKougu>0?"var(--gold)":"var(--border2)"}}>{fmtK(fKougu)}</td>
-                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:fTotal>0?"var(--gold)":"var(--border2)"}}>{fmtK(fTotal)}</td>
+                          <td>{FCell(fGas,aGas)}</td>
+                          <td>{FCell(fKougu,aKougu)}</td>
+                          <td style={{borderRight:"2px solid var(--border)"}}>{FCell(fTotal,aTotal)}</td>
                           <td style={{background:"#f0f9ff"}}>{D(dGas,bGas>0)}</td>
                           <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(rGas)}</td>
                           <td style={{background:"#f8faff"}}>{D(dKougu,bKougu>0)}</td>
@@ -933,9 +954,9 @@ function App() {
                         <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"#0891b2"}}>{fmtK(g.aGas)}</span></td>
                         <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"var(--accent)"}}>{fmtK(g.aKougu)}</span></td>
                         <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--green)"}}>{fmtK(g.aTotal)}</span></td>
-                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"#0891b2"}}>{fmtK(g.fGas)}</span></td>
-                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"var(--gold)"}}>{fmtK(g.fKougu)}</span></td>
-                        <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span></td>
+                        <td>{SFC(g.fGas,g.aGas,isTotal?13:11)}</td>
+                        <td>{SFC(g.fKougu,g.aKougu,isTotal?13:11)}</td>
+                        <td style={{borderRight:"2px solid var(--border)"}}>{SFC(g.fTotal,g.aTotal,isTotal?14:12)}</td>
                         <td style={{background:"#f0f9ff"}}>{D(g.dGas,g.bGas>0)}</td>
                         <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(g.rGas,isTotal?14:12)}</td>
                         <td style={{background:"#f8faff"}}>{D(g.dKougu,g.bKougu>0)}</td>
@@ -965,7 +986,7 @@ function App() {
                         const key=monthKey(year,month),gd=gasMonthly[key];
                         const b=budgetYen(key+"_gas")+budgetYen(key+"_kougu");
                         const a=(gd.hasActual?gd.actual:0)+properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
-                        const f=(gd.forecast||0)+properties.filter(p=>((p.status==="見積"&&p.rank==="A")||p.status==="受注")&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
+                        const f=(gd.forecast||0)+(gd.hasActual?gd.actual:0)+properties.filter(p=>["見積","受注","売上"].includes(p.status)&&(p.status!=="見積"||(p.status==="見積"&&p.rank==="A"))&&dateToMK(p.date)===key).reduce((s,p)=>s+p.sales,0);
                         const shortLabel=label.replace("2026年","").replace("2027年","");
                         return {key,label,shortLabel,b,a,f};
                       });
