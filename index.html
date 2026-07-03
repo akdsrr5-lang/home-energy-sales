@@ -323,23 +323,30 @@ const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val))
 function gasLoad() {
   return fetch(GAS_URL + '?action=load').then(r => r.json());
 }
-// スプレッドシートへ保存（POST・no-cors）
-function gasSave(properties, budgets, gas, locks) {
-  // 各データを個別にGETで保存（URL長を分割）
-  const baseUrl = GAS_URL + '?action=save_each';
-  return fetch(baseUrl
-    + '&key=properties&val=' + encodeURIComponent(JSON.stringify(properties))
-  ).then(()=>fetch(baseUrl
-    + '&key=budgets&val=' + encodeURIComponent(JSON.stringify(budgets))
-  )).then(()=>fetch(baseUrl
-    + '&key=gas&val=' + encodeURIComponent(JSON.stringify(gas))
-  ));
+// 1キーだけ保存（リトライあり）
+function saveKey(key, val) {
+  const url = GAS_URL + '?action=save_each&key=' + key + '&val=' + encodeURIComponent(JSON.stringify(val));
+  const attempt = (retry) => fetch(url)
+    .then(r => r.json())
+    .then(res => { if(res.error) throw new Error(res.error); return res; })
+    .catch(e => {
+      if(retry > 0) { return new Promise(r=>setTimeout(r,1000)).then(()=>attempt(retry-1)); }
+      console.error('saveKey failed after retries:', key, e);
+      throw e;
+    });
+  return attempt(2); // 最大3回試行
+}
+// スプレッドシートへ保存
+function gasSave(properties, budgets, gas) {
+  return Promise.all([
+    saveKey('properties', properties),
+    saveKey('budgets', budgets),
+    saveKey('gas', gas),
+  ]);
 }
 // ロックだけ保存
 function saveLocks(locks) {
-  return fetch(GAS_URL
-    + '?action=save_each&key=locks&val=' + encodeURIComponent(JSON.stringify(locks))
-  );
+  return saveKey('locks', locks);
 }
 
 function StaffToggle({ value, onChange, options }) {
@@ -408,6 +415,7 @@ function App() {
   const [gasDeleteInput, setGasDeleteInput]   = useState("");
   const [salesConfirmTarget, setSalesConfirmTarget] = useState(null);
   const [saveMsg, setSaveMsg]   = useState(false);
+  const [saveErr, setSaveErr]   = useState(false);
   const [budgetLocks, setBudgetLocks] = useState({});
   const [pinModal, setPinModal]       = useState(null); // 解除対象のbkey
   const [pinInput, setPinInput]       = useState("");
@@ -461,18 +469,20 @@ function App() {
   const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2500); };
 
   const saveAll = (props, bdgs, gas) => {
-    // ローカルキャッシュに即保存
     lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
     flash();
-    // スプレッドシートに非同期保存
-    setSyncing(true);
-    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
+    setSyncing(true); setSaveErr(false);
+    gasSave(props, bdgs, gas)
+      .then(()=>setSaveErr(false))
+      .catch(()=>{ setSaveErr(true); setTimeout(()=>setSaveErr(false),5000); })
+      .finally(()=>setSyncing(false));
   };
   const saveGas = gas => {
     lsSet("he_gas", gas); flash();
-    setSyncing(true);
-    const props = lsGet("he_properties")||[], bdgs = lsGet("he_budgets")||{};
-    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
+    setSyncing(true); setSaveErr(false);
+    gasSave(properties, budgets, gas)
+      .catch(()=>setSaveErr(true))
+      .finally(()=>setSyncing(false));
   };
   const toggleBudgetLock = key => {
     // 後方互換のため残す（内部では lockBudget を使用）
@@ -574,6 +584,7 @@ function App() {
           </span>
           {syncing && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>☁️ 同期中…</span>}
           {loading && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>📡 読込中…</span>}
+          {saveErr && <span style={{fontSize:11,color:"var(--red)",marginLeft:6}}>⚠️ 保存失敗 - 再試行中</span>}
         </div>
 
         <div className="tabs">
