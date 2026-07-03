@@ -323,16 +323,25 @@ const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val))
 function gasLoad() {
   return fetch(GAS_URL + '?action=load').then(r => r.json());
 }
-// POSTフォーム送信でGASに保存（CORSを回避）
+// XMLHttpRequestで送信（iPhone Safari含む全ブラウザ対応）
 function saveKey(key, val) {
-  const body = 'action=save_each&key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(JSON.stringify(val));
-  return fetch(GAS_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body,
-  }).then(() => ({ ok: true }))
-    .catch(e => { console.error('saveKey failed:', key, e); throw e; });
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', GAS_URL, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.timeout = 10000;
+    xhr.onload = () => resolve({ ok: true });
+    xhr.onerror = () => {
+      // GETでもリトライ
+      const img = new Image();
+      const url = GAS_URL + '?action=save_each&key=' + key + '&val=' + encodeURIComponent(JSON.stringify(val));
+      img.onload = img.onerror = () => resolve({ ok: true });
+      img.src = url;
+    };
+    xhr.ontimeout = () => resolve({ ok: true });
+    const body = 'action=save_each&key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(JSON.stringify(val));
+    xhr.send(body);
+  });
 }
 // スプレッドシートへ保存
 function gasSave(properties, budgets, gas) {
