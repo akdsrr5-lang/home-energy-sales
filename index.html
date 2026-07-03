@@ -323,16 +323,16 @@ const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val))
 function gasLoad() {
   return fetch(GAS_URL + '?action=load').then(r => r.json());
 }
-// Image pingで確実にGASにGETリクエストを送信
+// POSTフォーム送信でGASに保存（CORSを回避）
 function saveKey(key, val) {
-  return new Promise((resolve) => {
-    const url = GAS_URL + '?action=save_each&key=' + key + '&val=' + encodeURIComponent(JSON.stringify(val));
-    const img = new Image();
-    img.onload = img.onerror = () => resolve({ ok: true });
-    img.src = url;
-    // 5秒でタイムアウトしても成功扱い（送信は完了している）
-    setTimeout(() => resolve({ ok: true }), 5000);
-  });
+  const body = 'action=save_each&key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(JSON.stringify(val));
+  return fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body,
+  }).then(() => ({ ok: true }))
+    .catch(e => { console.error('saveKey failed:', key, e); throw e; });
 }
 // スプレッドシートへ保存
 function gasSave(properties, budgets, gas) {
