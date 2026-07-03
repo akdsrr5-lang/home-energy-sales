@@ -416,6 +416,8 @@ function App() {
   const [saveMsg, setSaveMsg]   = useState(false);
   const [saveErr, setSaveErr]   = useState(false);
   const [budgetLocks, setBudgetLocks] = useState({});
+  const [closedMonths, setClosedMonths] = useState({}); // 確定済み月 {key: true}
+  const [closePin, setClosePin]   = useState({modal:null, input:"", error:false, mode:"close"}); // mode: close|unlock
   const [pinModal, setPinModal]       = useState(null); // 解除対象のbkey
   const [pinInput, setPinInput]       = useState("");
   const [pinError, setPinError]       = useState(false);
@@ -448,20 +450,19 @@ function App() {
     const b = lsGet("he_budgets");    if(b) setBudgets(b);
     const g = lsGet("he_gas");        if(g) setGasEntries(g);
     const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
-    // スプレッドシートから最新データを取得（locksも含む）
+    const cm = lsGet("he_closedmonths"); if(cm) setClosedMonths(cm);
     gasLoad().then(data => {
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
       if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
       if(data.gas)        {
-        // actual値があるのにisActualがfalseのデータを自動修正
         const fixedGas = data.gas.map(g => g.actual!=null && g.actual>0 && !g.isActual ? {...g, isActual:true} : g);
         setGasEntries(fixedGas); lsSet("he_gas", fixedGas);
-        // 修正があればスプレッドシートにも保存
         if(fixedGas.some((g,i)=>g.isActual !== data.gas[i].isActual)) {
-          fetch(GAS_URL + '?action=save_each&key=gas&val=' + encodeURIComponent(JSON.stringify(fixedGas)));
+          saveKey('gas', fixedGas);
         }
       }
-      if(data.locks)      { setBudgetLocks(data.locks);     lsSet("he_budgetlocks",data.locks); }
+      if(data.locks)        { setBudgetLocks(data.locks);         lsSet("he_budgetlocks",   data.locks); }
+      if(data.closedMonths) { setClosedMonths(data.closedMonths); lsSet("he_closedmonths",  data.closedMonths); }
     }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
   }, []);
 
@@ -493,9 +494,27 @@ function App() {
     setSyncing(true);
     gasSave(properties, budgets, gas).finally(()=>setSyncing(false));
   };
-  const toggleBudgetLock = key => {
-    // 後方互換のため残す（内部では lockBudget を使用）
-    lockBudget(key);
+  const toggleBudgetLock = key => { lockBudget(key); };
+
+  // 〆機能
+  const CLOSE_PIN = "5570";
+  const isMonthClosed = key => !!closedMonths[key];
+  const saveClosedMonths = next => {
+    setClosedMonths(next); lsSet("he_closedmonths", next);
+    saveKey('closedMonths', next);
+  };
+  const openCloseModal  = (key) => setClosePin({modal:key, input:"", error:false, mode:"close"});
+  const openUnlockModal = (key) => setClosePin({modal:key, input:"", error:false, mode:"unlock"});
+  const confirmClosePin = () => {
+    if(closePin.input !== CLOSE_PIN) { setClosePin(p=>({...p, error:true, input:""})); return; }
+    if(closePin.mode === "close") {
+      const next = {...closedMonths, [closePin.modal]: true};
+      saveClosedMonths(next);
+    } else {
+      const next = {...closedMonths, [closePin.modal]: false};
+      saveClosedMonths(next);
+    }
+    setClosePin({modal:null, input:"", error:false, mode:"close"});
   };
 
   const handleAdd = () => {
@@ -526,6 +545,8 @@ function App() {
     setGasEntries(next); saveGas(next); setGasForm(EMPTY_GAS_FORM);
   };
   const handleSalesConfirm = () => {
+    const key = dateToMK(salesConfirmTarget.date);
+    if(isMonthClosed(key)) { alert('この月は確定済みです。解除するには売上管理表から暗証番号が必要です。'); setSalesConfirmTarget(null); return; }
     const next = properties.map(p => p.id===salesConfirmTarget.id ? {...p, status:"売上"} : p);
     setProperties(next); saveAll(next, budgets, gasEntries); setSalesConfirmTarget(null);
   };
@@ -804,8 +825,11 @@ function App() {
                         const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
                         const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
                         return (
-                          <tr key={g.id}>
-                            <td style={{fontWeight:600}}>{mLabel}</td>
+                          <tr key={g.id} style={isMonthClosed(g.monthKey)?{background:"#fafafa",opacity:.85}:{}}>
+                            <td style={{fontWeight:600}}>
+                              {mLabel}
+                              {isMonthClosed(g.monthKey)&&<span style={{marginLeft:6,fontSize:10,color:"var(--red)",fontWeight:700}}>確定</span>}
+                            </td>
                             <td>
                               <span style={{display:"inline-block",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,
                                 background:g.period==="前期"?"var(--gold-bg)":"var(--green-bg)",
@@ -816,10 +840,12 @@ function App() {
                             <td className="num gold">{fmt(g.forecast)}</td>
                             <td>
                               <input className="gas-actual-input" type="number" value={inputVal}
-                                onChange={e=>setGasActualInputs({...gasActualInputs,[g.id]:e.target.value})}
-                                onBlur={()=>handleGasActualSave(g.id)}
+                                readOnly={isMonthClosed(g.monthKey)}
+                                onClick={()=>{ if(isMonthClosed(g.monthKey)) alert('この月は確定済みです。売上管理表から解除してください（暗証番号:5570）'); }}
+                                onChange={e=>{ if(!isMonthClosed(g.monthKey)) setGasActualInputs({...gasActualInputs,[g.id]:e.target.value}); }}
+                                onBlur={()=>{ if(!isMonthClosed(g.monthKey)) handleGasActualSave(g.id); }}
                                 placeholder="実績入力"
-                                style={{borderColor:g.isActual?"var(--green)":"var(--border)"}}
+                                style={{borderColor:g.isActual?"var(--green)":"var(--border)", background:isMonthClosed(g.monthKey)?"#f1f5f9":"", cursor:isMonthClosed(g.monthKey)?"not-allowed":""}}
                               />
                             </td>
                             <td>{diff!=null?(<span className={diff>=0?"diff-pos":"diff-neg"}>{diff>=0?"▲ ":"▼ "}{Math.abs(diff).toLocaleString()}円</span>):(<span style={{color:"var(--border2)"}}>—</span>)}</td>
@@ -850,33 +876,27 @@ function App() {
                 <table className="budget-table">
                   <thead style={{position:"sticky",top:0,zIndex:10}}>
                     <tr>
-                      <th rowSpan={3} style={{minWidth:80,position:"sticky",top:0,background:"var(--bg)",zIndex:11}}>月</th>
+                      <th rowSpan={2} style={{minWidth:80,position:"sticky",top:0,background:"var(--bg)",zIndex:11}}>月</th>
+                      <th rowSpan={2} style={{minWidth:60,position:"sticky",top:0,background:"var(--bg)",zIndex:11,textAlign:"center"}}>確定</th>
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（単位：千円）</span></th>
-                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"var(--bg)"}}>実　績</th>
-                      <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"var(--bg)"}}>売上見込</th>
-                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"#0891b2",background:"#f0f9ff"}}>ガス</th>
-                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--accent)",background:"#f8faff"}}>器具工事</th>
-                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"#fffbeb"}}>合計（見込）</th>
-                      <th colSpan={2} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"#f0fdf4"}}>合計（実績）</th>
+                      <th colSpan={4} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"var(--bg)"}}>実　績</th>
+                      <th colSpan={4} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"var(--bg)"}}>売上見込</th>
                     </tr>
                     <tr>
+                      {/* 予算 */}
                       <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",top:0,position:"sticky"}}>ガス</th>
                       <th className="sub" style={{color:"var(--accent)",background:"#f8faff",top:0,position:"sticky"}}>器具工事</th>
                       <th className="sub" style={{color:"var(--text2)",background:"#f8fafc",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>合計</th>
-                      <th className="sub" style={{color:"#0891b2",background:"var(--bg)",top:0,position:"sticky"}}>ガス</th>
-                      <th className="sub" style={{color:"var(--accent)",background:"var(--bg)",top:0,position:"sticky"}}>器具工事</th>
-                      <th className="sub" style={{color:"var(--green)",fontWeight:900,borderRight:"2px solid var(--border)",background:"var(--bg)",top:0,position:"sticky"}}>合計</th>
-                      <th className="sub" style={{color:"#0891b2",background:"var(--bg)",top:0,position:"sticky"}}>ガス</th>
-                      <th className="sub" style={{color:"var(--accent)",background:"var(--bg)",top:0,position:"sticky"}}>器具工事</th>
-                      <th className="sub" style={{color:"var(--gold)",fontWeight:900,borderRight:"2px solid var(--border)",background:"var(--bg)",top:0,position:"sticky"}}>合計</th>
-                      <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",top:0,position:"sticky"}}>予算比</th>
-                      <th className="sub" style={{color:"#0891b2",background:"#f0f9ff",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
-                      <th className="sub" style={{color:"var(--accent)",background:"#f8faff",top:0,position:"sticky"}}>予算比</th>
-                      <th className="sub" style={{color:"var(--accent)",background:"#f8faff",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
-                      <th className="sub" style={{color:"var(--gold)",background:"#fffbeb",top:0,position:"sticky"}}>予算比</th>
-                      <th className="sub" style={{color:"var(--gold)",background:"#fffbeb",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
-                      <th className="sub" style={{color:"var(--green)",background:"#f0fdf4",top:0,position:"sticky"}}>予算比</th>
-                      <th className="sub" style={{color:"var(--green)",background:"#f0fdf4",top:0,position:"sticky"}}>達成率</th>
+                      {/* 実績 */}
+                      <th className="sub" style={{color:"#0891b2",top:0,position:"sticky"}}>ガス<br/><span style={{fontSize:9,color:"var(--muted)"}}>予算比/達成率</span></th>
+                      <th className="sub" style={{color:"var(--accent)",top:0,position:"sticky"}}>器具工事<br/><span style={{fontSize:9,color:"var(--muted)"}}>予算比/達成率</span></th>
+                      <th className="sub" style={{color:"var(--green)",fontWeight:900,top:0,position:"sticky"}}>合計</th>
+                      <th className="sub" style={{color:"var(--green)",borderRight:"2px solid var(--border)",top:0,position:"sticky"}}>達成率</th>
+                      {/* 見込 */}
+                      <th className="sub" style={{color:"#0891b2",top:0,position:"sticky"}}>ガス<br/><span style={{fontSize:9,color:"var(--muted)"}}>予算比/達成率</span></th>
+                      <th className="sub" style={{color:"var(--gold)",top:0,position:"sticky"}}>器具工事<br/><span style={{fontSize:9,color:"var(--muted)"}}>予算比/達成率</span></th>
+                      <th className="sub" style={{color:"var(--gold)",fontWeight:900,top:0,position:"sticky"}}>合計</th>
+                      <th className="sub" style={{color:"var(--gold)",top:0,position:"sticky"}}>達成率</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -922,46 +942,57 @@ function App() {
                         const dGas=aGas-bGas,dKougu=aKougu-bKougu,dFTotal=fTotal-bTotal,dATotal=aTotal-bTotal;
                         const rGas=bGas>0?(aGas/bGas)*100:null,rKougu=bKougu>0?(aKougu/bKougu)*100:null;
                         const rFTotal=bTotal>0?(fTotal/bTotal)*100:null,rATotal=bTotal>0?(aTotal/bTotal)*100:null;
-                        return(<tr key={key}>
-                          <td style={{fontWeight:600}}>{label}</td>
-                          <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_gas"} locked={lockedGas} value={budgets[key+"_gas"]||0} onSave={handleBudget} onRequestUnlock={requestUnlock}/>{!lockedGas&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_gas")} style={{padding:"2px 5px",fontSize:11,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
-                          <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_kougu"} locked={lockedKougu} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onRequestUnlock={requestUnlock}/>{!lockedKougu&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_kougu")} style={{padding:"2px 5px",fontSize:11,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
+                        const closed = isMonthClosed(key);
+                        const ACell = (actual, budget) => {
+                          const rate = budget>0?Math.round((actual/budget)*100):null;
+                          return (<div style={{textAlign:"right",lineHeight:1.5}}>
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:actual>0?"var(--green)":"var(--border2)",fontWeight:600}}>{actual>0?fmtK(actual):"—"}</div>
+                            {rate!==null&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate}%　{actual>=budget?"▲":"▼"}{fmtK(Math.abs(actual-budget))}</div>}
+                          </div>);
+                        };
+                        const FCell2 = (fVal, bVal, aVal) => {
+                          const rate = bVal>0?Math.round((fVal/bVal)*100):null;
+                          const rmn = Math.max(fVal-aVal,0);
+                          return (<div style={{textAlign:"right",lineHeight:1.5}}>
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:fVal>0?"var(--gold)":"var(--border2)",fontWeight:600}}>{fVal>0?fmtK(fVal):"—"}</div>
+                            {fVal>0&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:"var(--muted)"}}>残:{fmtK(rmn)}{rate!==null&&<span style={{color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)",marginLeft:3}}>{rate}%</span>}</div>}
+                          </div>);
+                        };
+                        return(<tr key={key} style={closed?{background:"#fff8f8"}:{}}>
+                          <td style={{fontWeight:600,color:closed?"var(--red)":"var(--text)"}}>{label}{closed&&<span style={{marginLeft:5,fontSize:10,fontWeight:700,color:"var(--red)"}}>確定</span>}</td>
+                          <td style={{textAlign:"center"}}>
+                            {closed ? (
+                              <button onClick={()=>openUnlockModal(key)} style={{padding:"4px 8px",fontSize:10,fontWeight:700,borderRadius:6,cursor:"pointer",border:"1.5px solid var(--red)",background:"#fff0f0",color:"var(--red)"}}>🔓解除</button>
+                            ) : (
+                              <button onClick={()=>openCloseModal(key)} style={{padding:"4px 8px",fontSize:10,fontWeight:700,borderRadius:6,cursor:"pointer",border:"1.5px solid var(--border)",background:"var(--bg)",color:"var(--muted)"}}>当月確定</button>
+                            )}
+                          </td>
+                          <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_gas"} locked={lockedGas||closed} value={budgets[key+"_gas"]||0} onSave={handleBudget} onRequestUnlock={closed?()=>openUnlockModal(key):requestUnlock}/>{!lockedGas&&!closed&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_gas")} style={{padding:"2px 4px",fontSize:10,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
+                          <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_kougu"} locked={lockedKougu||closed} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onRequestUnlock={closed?()=>openUnlockModal(key):requestUnlock}/>{!lockedKougu&&!closed&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_kougu")} style={{padding:"2px 4px",fontSize:10,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
                           <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:bTotal>0?"var(--text2)":"var(--border2)"}}>{fmtK(bTotal)}</td>
-                          <td className="num" style={{color:aGas>0?"#0891b2":"var(--border2)"}}>{fmtK(aGas)}</td>
-                          <td className="num" style={{color:aKougu>0?"var(--accent)":"var(--border2)"}}>{fmtK(aKougu)}</td>
-                          <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",color:aTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(aTotal)}</td>
-                          <td>{FCell(fGas,aGas)}</td>
-                          <td>{FCell(fKougu,aKougu)}</td>
-                          <td style={{borderRight:"2px solid var(--border)"}}>{FCell(fTotal,aTotal)}</td>
-                          <td style={{background:"#f0f9ff"}}>{D(dGas,bGas>0)}</td>
-                          <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(rGas)}</td>
-                          <td style={{background:"#f8faff"}}>{D(dKougu,bKougu>0)}</td>
-                          <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{R(rKougu)}</td>
-                          <td style={{background:"#fffbeb"}}>{D(dFTotal,bTotal>0)}</td>
-                          <td style={{background:"#fffbeb",borderRight:"2px solid var(--border)"}}>{R(rFTotal)}</td>
-                          <td style={{background:"#f0fdf4"}}>{D(dATotal,bTotal>0)}</td>
-                          <td style={{background:"#f0fdf4"}}>{R(rATotal)}</td>
+                          <td>{ACell(aGas,bGas)}</td>
+                          <td>{ACell(aKougu,bKougu)}</td>
+                          <td className="num" style={{fontWeight:700,color:aTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(aTotal)}</td>
+                          <td style={{borderRight:"2px solid var(--border)"}}>{R(rATotal)}</td>
+                          <td>{FCell2(fGas,bGas,aGas)}</td>
+                          <td>{FCell2(fKougu,bKougu,aKougu)}</td>
+                          <td className="num" style={{fontWeight:700,color:fTotal>0?"var(--gold)":"var(--border2)"}}>{fmtK(fTotal)}</td>
+                          <td>{R(rFTotal)}</td>
                         </tr>);
                       };
-                      const SFC=(fVal,aVal,size=12)=>{const rmn=fVal-aVal;return(<div style={{textAlign:"right",lineHeight:1.4}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:size,color:"var(--gold)",fontWeight:700}}>{fVal>0?fmtK(fVal):"—"}</div>{fVal>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:size-2,color:rmn>0?"#0891b2":rmn<0?"var(--red)":"var(--muted)"}}>残:{fmtK(Math.max(rmn,0))}</div>}</div>);};
                       const SummaryRow=({label,g,bg,borderTop,isTotal})=>(<tr style={{background:bg,borderTop:borderTop||"none"}}>
-                        <td style={{fontWeight:isTotal?900:700,fontSize:isTotal?14:12,color:isTotal?"var(--green)":label.includes("下期")?"#0369a1":"#059669",paddingLeft:18,whiteSpace:"nowrap"}}>{label}</td>
-                        <td style={{background:isTotal?"#dcfce7":"#f1f5f9"}} colSpan={2}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"var(--text2)"}}>ガス:{fmtK(g.bGas)} / 工事:{fmtK(g.bKougu)}</span></td>
-                        <td style={{borderRight:"2px solid var(--border)",background:isTotal?"#dcfce7":"#f1f5f9"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?14:12,color:isTotal?"var(--green)":"var(--text2)"}}>{fmtK(g.bTotal)}</span></td>
-                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"#0891b2"}}>{fmtK(g.aGas)}</span></td>
-                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:12,color:"var(--accent)"}}>{fmtK(g.aKougu)}</span></td>
-                        <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--green)"}}>{fmtK(g.aTotal)}</span></td>
-                        <td>{SFC(g.fGas,g.aGas,isTotal?13:11)}</td>
-                        <td>{SFC(g.fKougu,g.aKougu,isTotal?13:11)}</td>
-                        <td style={{borderRight:"2px solid var(--border)"}}>{SFC(g.fTotal,g.aTotal,isTotal?14:12)}</td>
-                        <td style={{background:"#f0f9ff"}}>{D(g.dGas,g.bGas>0)}</td>
-                        <td style={{background:"#f0f9ff",borderRight:"2px solid var(--border)"}}>{R(g.rGas,isTotal?14:12)}</td>
-                        <td style={{background:"#f8faff"}}>{D(g.dKougu,g.bKougu>0)}</td>
-                        <td style={{background:"#f8faff",borderRight:"2px solid var(--border)"}}>{R(g.rKougu,isTotal?14:12)}</td>
-                        <td style={{background:"#fffbeb"}}>{D(g.dFTotal,g.bTotal>0)}</td>
-                        <td style={{background:"#fffbeb",borderRight:"2px solid var(--border)"}}>{R(g.rFTotal,isTotal?14:12)}</td>
-                        <td style={{background:"#f0fdf4"}}>{D(g.dATotal,g.bTotal>0)}</td>
-                        <td style={{background:"#f0fdf4"}}>{R(g.rATotal,isTotal?15:13)}</td>
+                        <td style={{fontWeight:isTotal?900:700,fontSize:isTotal?13:12,color:isTotal?"var(--green)":label.includes("下期")?"#0369a1":"#059669",whiteSpace:"nowrap"}}>{label}</td>
+                        <td></td>
+                        <td style={{background:isTotal?"#dcfce7":"#f1f5f9"}} colSpan={2}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:700,fontSize:11,color:"var(--text2)"}}>G:{fmtK(g.bGas)} 工:{fmtK(g.bKougu)}</span></td>
+                        <td style={{borderRight:"2px solid var(--border)",background:isTotal?"#dcfce7":"#f1f5f9"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?13:11,color:isTotal?"var(--green)":"var(--text2)"}}>{fmtK(g.bTotal)}</span></td>
+                        <td><div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--green)",fontWeight:700}}>{fmtK(g.aGas)}</div>{g.rGas!==null&&<div style={{fontSize:9,color:g.rGas>=100?"var(--green)":g.rGas>=80?"var(--gold)":"var(--red)"}}>{Math.round(g.rGas)}%</div>}</div></td>
+                        <td><div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--green)",fontWeight:700}}>{fmtK(g.aKougu)}</div>{g.rKougu!==null&&<div style={{fontSize:9,color:g.rKougu>=100?"var(--green)":g.rKougu>=80?"var(--gold)":"var(--red)"}}>{Math.round(g.rKougu)}%</div>}</div></td>
+                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?14:12,color:"var(--green)"}}>{fmtK(g.aTotal)}</span></td>
+                        <td style={{borderRight:"2px solid var(--border)"}}>{R(g.rATotal,isTotal?14:12)}</td>
+                        <td><div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fGas)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fGas-g.aGas,0))}</div>}</div></td>
+                        <td><div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fKougu)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fKougu-g.aKougu,0))}</div>}</div></td>
+                        <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?14:12,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span></td>
+                        <td>{R(g.rFTotal,isTotal?14:12)}</td>
                       </tr>);
                       return(<>
                         {KAMI.map(m=><MonthRow key={monthKey(m.year,m.month)} {...m}/>)}
@@ -1071,6 +1102,46 @@ function App() {
             <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
               <button className="btn btn-secondary" onClick={()=>{setPinModal(null);setPinInput("");setPinError(false);}}>キャンセル</button>
               <button className="btn btn-primary" onClick={confirmPin}>解除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 月次月次確定・解除モーダル */}
+      {closePin.modal && (
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget) setClosePin(p=>({...p,modal:null}));}}>
+          <div className="modal" style={{maxWidth:400}}>
+            <div className="modal-title">
+              {closePin.mode==="close"?"🔐 月次確定":"🔓 確定解除"}
+            </div>
+            {closePin.mode==="close" ? (
+              <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.7}}>
+                <strong style={{color:"var(--red)"}}>{FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===closePin.modal)?.label}</strong> を確定します。<br/>
+                確定後はすべての数字が変更できなくなります。<br/>
+                解除には暗証番号が必要です。
+              </div>
+            ) : (
+              <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.7}}>
+                <strong style={{color:"var(--red)"}}>{FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===closePin.modal)?.label}</strong> の確定を解除します。<br/>
+                暗証番号を入力してください。
+              </div>
+            )}
+            <input
+              type="password"
+              value={closePin.input}
+              onChange={e=>setClosePin(p=>({...p,input:e.target.value,error:false}))}
+              onKeyDown={e=>e.key==="Enter"&&confirmClosePin()}
+              placeholder="暗証番号"
+              autoFocus
+              style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1.5px solid ${closePin.error?"var(--red)":"var(--border)"}`,fontSize:18,textAlign:"center",letterSpacing:8,outline:"none",fontFamily:"'DM Mono',monospace",marginBottom:8}}
+            />
+            {closePin.error && <div style={{color:"var(--red)",fontSize:12,marginBottom:8,textAlign:"center"}}>暗証番号が違います</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+              <button className="btn btn-secondary" onClick={()=>setClosePin(p=>({...p,modal:null}))}>キャンセル</button>
+              <button className="btn" onClick={confirmClosePin}
+                style={{background:closePin.mode==="close"?"var(--red)":"var(--green)",color:"#fff",padding:"9px 24px",fontSize:13,fontWeight:700,borderRadius:8}}>
+                {closePin.mode==="close"?"当月確定":"解除する"}
+              </button>
             </div>
           </div>
         </div>
