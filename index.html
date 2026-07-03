@@ -463,18 +463,31 @@ function App() {
 
   const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2500); };
 
+  // 保存後に読み込み確認して整合性チェック
+  const verifySave = (props) => {
+    setTimeout(() => {
+      gasLoad().then(data => {
+        if (data.properties && data.properties.length !== props.length) {
+          // 件数が合わない場合は再保存
+          saveKey('properties', props);
+        }
+      }).catch(()=>{});
+    }, 3000);
+  };
+
   const saveAll = (props, bdgs, gas) => {
     lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
     flash();
-    setSyncing(true); setSaveErr(false);
-    gasSave(props, bdgs, gas)
-      .finally(()=>setSyncing(false));
+    setSyncing(true);
+    gasSave(props, bdgs, gas).finally(()=>{
+      setSyncing(false);
+      verifySave(props);
+    });
   };
   const saveGas = gas => {
     lsSet("he_gas", gas); flash();
     setSyncing(true);
-    gasSave(properties, budgets, gas)
-      .finally(()=>setSyncing(false));
+    gasSave(properties, budgets, gas).finally(()=>setSyncing(false));
   };
   const toggleBudgetLock = key => {
     // 後方互換のため残す（内部では lockBudget を使用）
@@ -576,7 +589,6 @@ function App() {
           </span>
           {syncing && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>☁️ 同期中…</span>}
           {loading && <span style={{fontSize:11,color:"var(--muted)",marginLeft:6}}>📡 読込中…</span>}
-          {saveErr && <span style={{fontSize:11,color:"var(--red)",marginLeft:6}}>⚠️ 保存失敗 - 再試行中</span>}
         </div>
 
         <div className="tabs">
