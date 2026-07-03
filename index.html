@@ -364,6 +364,38 @@ function StaffToggle({ value, onChange, options }) {
   );
 }
 
+// 乖離理由インライン編集コンポーネント
+function RemarkCell({ monthKey, value, onSave, allRemarks }) {
+  const [local, setLocal] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setLocal(value); }, [value]);
+
+  const handleSave = () => {
+    if(local === value) return; // 変更なしならスキップ
+    setSaving(true);
+    const next = {...allRemarks, [monthKey]: local};
+    onSave(next);
+    // 保存完了フラグを表示
+    setTimeout(() => { setSaving(false); setSaved(true); setTimeout(()=>setSaved(false),2000); }, 500);
+  };
+
+  return (
+    <div style={{position:"relative"}}>
+      <textarea
+        value={local}
+        onChange={e=>setLocal(e.target.value)}
+        onBlur={handleSave}
+        placeholder="乖離理由を記入…"
+        rows={2}
+        style={{width:"100%",padding:"6px 8px",borderRadius:6,border:"1.5px solid var(--border)",fontSize:12,fontFamily:"inherit",outline:"none",resize:"vertical",color:"var(--text)",background:"var(--white)",lineHeight:1.5}}
+      />
+      {saving && <div style={{fontSize:10,color:"var(--muted)",textAlign:"right"}}>保存中…</div>}
+      {saved  && <div style={{fontSize:10,color:"var(--green)",textAlign:"right"}}>✓ 保存済み</div>}
+    </div>
+  );
+}
+
 function BudgetInput({ bkey, locked, value, onSave, onRequestUnlock }) {
   const [local, setLocal] = useState(value === 0 ? "" : String(value));
   useEffect(() => { setLocal(value === 0 ? "" : String(value)); }, [bkey]);
@@ -451,6 +483,7 @@ function App() {
     const g = lsGet("he_gas");        if(g) setGasEntries(g);
     const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
     const cm = lsGet("he_closedmonths"); if(cm) setClosedMonths(cm);
+    const cr = lsGet("he_closeremarks"); if(cr) setCloseRemarks(cr);
     gasLoad().then(data => {
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
       if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
@@ -463,6 +496,7 @@ function App() {
       }
       if(data.locks)        { setBudgetLocks(data.locks);         lsSet("he_budgetlocks",   data.locks); }
       if(data.closedMonths) { setClosedMonths(data.closedMonths); lsSet("he_closedmonths",  data.closedMonths); }
+      if(data.closeRemarks) { setCloseRemarks(data.closeRemarks); lsSet("he_closeremarks",  data.closeRemarks); }
     }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
   }, []);
 
@@ -499,22 +533,42 @@ function App() {
   // 〆機能
   const CLOSE_PIN = "5570";
   const isMonthClosed = key => !!closedMonths[key];
+  const [closeRemarks, setCloseRemarks] = useState({}); // 月ごとの乖離理由
   const saveClosedMonths = next => {
     setClosedMonths(next); lsSet("he_closedmonths", next);
     saveKey('closedMonths', next);
   };
-  const openCloseModal  = (key) => setClosePin({modal:key, input:"", error:false, mode:"close"});
-  const openUnlockModal = (key) => setClosePin({modal:key, input:"", error:false, mode:"unlock"});
+  const saveCloseRemarks = next => {
+    setCloseRemarks(next);
+    lsSet("he_closeremarks", next);
+    // 保存してから3秒後に読み込み確認→件数が違えば再保存
+    saveKey('closeRemarks', next).then(() => {
+      setTimeout(() => {
+        gasLoad().then(data => {
+          if(!data.closeRemarks || JSON.stringify(data.closeRemarks) !== JSON.stringify(next)) {
+            saveKey('closeRemarks', next);
+          }
+        }).catch(()=>{});
+      }, 3000);
+    }).catch(()=>{
+      // 失敗したら1秒後にリトライ
+      setTimeout(()=>saveKey('closeRemarks', next), 1000);
+    });
+  };
+  const openCloseModal  = (key) => setClosePin({modal:key, input:"", error:false, mode:"close", remark:closeRemarks[key]||""});
+  const openUnlockModal = (key) => setClosePin({modal:key, input:"", error:false, mode:"unlock", remark:""});
   const confirmClosePin = () => {
     if(closePin.input !== CLOSE_PIN) { setClosePin(p=>({...p, error:true, input:""})); return; }
     if(closePin.mode === "close") {
-      const next = {...closedMonths, [closePin.modal]: true};
-      saveClosedMonths(next);
+      const nextClosed = {...closedMonths, [closePin.modal]: true};
+      const nextRemarks = {...closeRemarks, [closePin.modal]: closePin.remark||""};
+      saveClosedMonths(nextClosed);
+      saveCloseRemarks(nextRemarks);
     } else {
-      const next = {...closedMonths, [closePin.modal]: false};
-      saveClosedMonths(next);
+      const nextClosed = {...closedMonths, [closePin.modal]: false};
+      saveClosedMonths(nextClosed);
     }
-    setClosePin({modal:null, input:"", error:false, mode:"close"});
+    setClosePin({modal:null, input:"", error:false, mode:"close", remark:""});
   };
 
   const handleAdd = () => {
@@ -881,6 +935,7 @@ function App() {
                       <th colSpan={3} style={{textAlign:"center",borderBottom:"1px solid var(--border)",background:"#f8fafc",color:"var(--text2)"}}>予　算　<span style={{fontSize:10,fontWeight:400,color:"var(--muted)"}}>（単位：千円）</span></th>
                       <th colSpan={4} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--green)",background:"var(--bg)"}}>実　績</th>
                       <th colSpan={4} style={{textAlign:"center",borderBottom:"1px solid var(--border)",color:"var(--gold)",background:"var(--bg)"}}>売上見込</th>
+                      <th rowSpan={2} style={{minWidth:160,color:"var(--muted)",background:"#fffbeb",fontSize:11}}>乖離理由</th>
                     </tr>
                     <tr>
                       {/* 予算 */}
@@ -978,6 +1033,13 @@ function App() {
                           <td>{FCell2(fKougu,bKougu,aKougu)}</td>
                           <td className="num" style={{fontWeight:700,color:fTotal>0?"var(--gold)":"var(--border2)"}}>{fmtK(fTotal)}</td>
                           <td>{R(rFTotal)}</td>
+                          <td style={{background:"#fffbeb"}}>
+                            {closed ? (
+                              <RemarkCell monthKey={key} value={closeRemarks[key]||""} onSave={saveCloseRemarks} allRemarks={closeRemarks}/>
+                            ) : (
+                              <span style={{fontSize:11,color:"var(--muted)"}}>確定後に記入可</span>
+                            )}
+                          </td>
                         </tr>);
                       };
                       const SummaryRow=({label,g,bg,borderTop,isTotal})=>(<tr style={{background:bg,borderTop:borderTop||"none"}}>
@@ -993,6 +1055,7 @@ function App() {
                         <td><div style={{textAlign:"right"}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fKougu)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fKougu-g.aKougu,0))}</div>}</div></td>
                         <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?14:12,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span></td>
                         <td>{R(g.rFTotal,isTotal?14:12)}</td>
+                        <td style={{background:"#fffbeb"}}></td>
                       </tr>);
                       return(<>
                         {KAMI.map(m=><MonthRow key={monthKey(m.year,m.month)} {...m}/>)}
@@ -1115,15 +1178,26 @@ function App() {
               {closePin.mode==="close"?"🔐 月次確定":"🔓 確定解除"}
             </div>
             {closePin.mode==="close" ? (
-              <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.7}}>
+              <div style={{fontSize:13,color:"var(--text2)",marginBottom:12,lineHeight:1.7}}>
                 <strong style={{color:"var(--red)"}}>{FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===closePin.modal)?.label}</strong> を確定します。<br/>
-                確定後はすべての数字が変更できなくなります。<br/>
-                解除には暗証番号が必要です。
+                確定後はすべての数字が変更できなくなります。
               </div>
             ) : (
-              <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.7}}>
+              <div style={{fontSize:13,color:"var(--text2)",marginBottom:12,lineHeight:1.7}}>
                 <strong style={{color:"var(--red)"}}>{FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===closePin.modal)?.label}</strong> の確定を解除します。<br/>
                 暗証番号を入力してください。
+              </div>
+            )}
+            {closePin.mode==="close" && (
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:11,fontWeight:700,color:"var(--text2)",letterSpacing:".06em",textTransform:"uppercase",display:"block",marginBottom:6}}>予算乖離理由（任意）</label>
+                <textarea
+                  value={closePin.remark||""}
+                  onChange={e=>setClosePin(p=>({...p,remark:e.target.value}))}
+                  placeholder="例）大型案件の受注遅延により未達。来月繰越予定。"
+                  rows={3}
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid var(--border)",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical",color:"var(--text)",background:"var(--bg)"}}
+                />
               </div>
             )}
             <input
