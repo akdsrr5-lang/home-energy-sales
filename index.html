@@ -364,7 +364,44 @@ function StaffToggle({ value, onChange, options }) {
   );
 }
 
-// 乖離理由コンポーネント（編集ボタン方式）
+// 折りたたみセクションコンポーネント
+function CollapsibleSection({ title, defaultOpen, children }) {
+  const [open, setOpen] = useState(defaultOpen !== false);
+  return (
+    <div style={{marginBottom:20}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",
+          background:"var(--white)",border:"1px solid var(--border)",borderRadius:open?"10px 10px 0 0":"10px",
+          cursor:"pointer",fontFamily:"inherit",transition:"all .15s",boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
+        <span style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{title}</span>
+        <span style={{fontSize:18,color:"var(--muted)",transition:"transform .2s",display:"inline-block",transform:open?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+      </button>
+      {open && (
+        <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--white)",boxShadow:"0 1px 3px rgba(0,0,0,.05)"}}>
+          <div style={{padding:"16px"}}>
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ガス使用量入力コンポーネント（他端末同期対応）
+function GasUsageInput({ monthKey, field, value, onSave, unit }) {
+  const [local, setLocal] = useState(value === 0 ? "" : String(value));
+  useEffect(() => { setLocal(value === 0 ? "" : String(value)); }, [monthKey, field, value]);
+  return (
+    <input
+      type="number"
+      placeholder="0"
+      value={local}
+      onChange={e => setLocal(e.target.value)}
+      onBlur={e => onSave(monthKey, field, e.target.value)}
+      style={{width:"110px",padding:"6px 10px",borderRadius:6,border:"1.5px solid var(--border)",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace",outline:"none",background:"var(--bg)",color:"var(--text)"}}
+    />
+  );
+}
 function RemarkCell({ monthKey, value, onSave, allRemarks }) {
   const [editing, setEditing] = useState(false);
   const [local, setLocal]     = useState(value);
@@ -478,6 +515,7 @@ function App() {
   const [salesConfirmTarget, setSalesConfirmTarget] = useState(null);
   const [saveMsg, setSaveMsg]   = useState(false);
   const [saveErr, setSaveErr]   = useState(false);
+  const [gasUsage, setGasUsage] = useState({}); // {monthKey: {inspection_m3, kilo_sell, inspection_count}}
   const [budgetLocks, setBudgetLocks] = useState({});
   const [closedMonths, setClosedMonths] = useState({}); // 確定済み月 {key: true}
   const [closePin, setClosePin]   = useState({modal:null, input:"", error:false, mode:"close"}); // mode: close|unlock
@@ -515,6 +553,7 @@ function App() {
     const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
     const cm = lsGet("he_closedmonths"); if(cm) setClosedMonths(cm);
     const cr = lsGet("he_closeremarks"); if(cr) setCloseRemarks(cr);
+    const gu = lsGet("he_gasusage");     if(gu) setGasUsage(gu);
     gasLoad().then(data => {
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
       if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
@@ -528,6 +567,7 @@ function App() {
       if(data.locks)        { setBudgetLocks(data.locks);         lsSet("he_budgetlocks",   data.locks); }
       if(data.closedMonths) { setClosedMonths(data.closedMonths); lsSet("he_closedmonths",  data.closedMonths); }
       if(data.closeRemarks) { setCloseRemarks(data.closeRemarks); lsSet("he_closeremarks",  data.closeRemarks); }
+      if(data.gasUsage)     { setGasUsage(data.gasUsage);         lsSet("he_gasusage",      data.gasUsage); }
     }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
   }, []);
 
@@ -562,7 +602,12 @@ function App() {
   const toggleBudgetLock = key => { lockBudget(key); };
 
   // 〆機能
-  const CLOSE_PIN = "5570";
+  const handleGasUsage = (monthKey, field, val) => {
+    const next = {...gasUsage, [monthKey]: {...(gasUsage[monthKey]||{}), [field]: parseFloat(val)||0}};
+    setGasUsage(next); lsSet("he_gasusage", next);
+    saveKey('gasUsage', next);
+  };
+  const SANKI_RATE = 0.482; // 産気率
   const isMonthClosed = key => !!closedMonths[key];
   const [closeRemarks, setCloseRemarks] = useState({}); // 月ごとの乖離理由
   const saveClosedMonths = next => {
@@ -897,59 +942,121 @@ function App() {
                   <button className="btn btn-primary" onClick={handleGasAdd}>＋ 登録</button>
                 </div>
               </div>
-              <div className="section-title">ガス売上 一覧</div>
-              {gasEntries.length===0 ? (
-                <div className="empty-state"><div className="icon">🔥</div>ガス売上が登録されていません</div>
-              ) : (
+
+              <CollapsibleSection title="🔥 ガス売上一覧" defaultOpen={true}>
+                {gasEntries.length===0 ? (
+                  <div className="empty-state"><div className="icon">🔥</div>ガス売上が登録されていません</div>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
+                      <tbody>
+                        {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||(a.period==="前期"?-1:1)-(b.period==="前期"?-1:1)).map(g=>{
+                          const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
+                          const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
+                          const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
+                          return (
+                            <tr key={g.id} style={isMonthClosed(g.monthKey)?{background:"#fafafa",opacity:.85}:{}}>
+                              <td style={{fontWeight:600}}>
+                                {mLabel}
+                                {isMonthClosed(g.monthKey)&&<span style={{marginLeft:6,fontSize:10,color:"var(--red)",fontWeight:700}}>確定</span>}
+                              </td>
+                              <td>
+                                <span style={{display:"inline-block",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                                  background:g.period==="前期"?"var(--gold-bg)":"var(--green-bg)",
+                                  color:g.period==="前期"?"var(--gold)":"var(--green)",
+                                  border:`1px solid ${g.period==="前期"?"#fcd34d":"#6ee7b7"}`
+                                }}>{g.period}</span>
+                              </td>
+                              <td className="num gold">{fmt(g.forecast)}</td>
+                              <td>
+                                <input className="gas-actual-input" type="number" value={inputVal}
+                                  readOnly={isMonthClosed(g.monthKey)}
+                                  onClick={()=>{ if(isMonthClosed(g.monthKey)) alert('この月は確定済みです。売上管理表から解除してください（暗証番号:5570）'); }}
+                                  onChange={e=>{ if(!isMonthClosed(g.monthKey)) setGasActualInputs({...gasActualInputs,[g.id]:e.target.value}); }}
+                                  onBlur={()=>{ if(!isMonthClosed(g.monthKey)) handleGasActualSave(g.id); }}
+                                  placeholder="実績入力"
+                                  style={{borderColor:g.isActual?"var(--green)":"var(--border)",background:isMonthClosed(g.monthKey)?"#f1f5f9":"",cursor:isMonthClosed(g.monthKey)?"not-allowed":""}}
+                                />
+                              </td>
+                              <td>{diff!=null?(<span className={diff>=0?"diff-pos":"diff-neg"}>{diff>=0?"▲ ":"▼ "}{Math.abs(diff).toLocaleString()}円</span>):(<span style={{color:"var(--border2)"}}>—</span>)}</td>
+                              <td>
+                                <span style={{padding:"4px 10px",fontSize:11,fontWeight:700,borderRadius:20,display:"inline-block",
+                                  background:g.isActual?"var(--green-bg)":"var(--gold-bg)",
+                                  color:g.isActual?"var(--green)":"var(--gold)",
+                                  border:`1.5px solid ${g.isActual?"#6ee7b7":"#fcd34d"}`}}>
+                                  {g.isActual?"✓ 実績":"見込"}
+                                </span>
+                              </td>
+                              <td><button className="btn btn-danger" onClick={()=>{setGasDeleteTarget(g);setGasDeleteInput("");}}>🗑 削除</button></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CollapsibleSection>
+
+              <CollapsibleSection title="📊 ガス使用量・検針件数" defaultOpen={true}>
                 <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead>
+                      <tr style={{background:"var(--bg)"}}>
+                        <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>月</th>
+                        <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>検針件数（件）</th>
+                        <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>検針数量（m³）</th>
+                        <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>→ キロ換算<br/><span style={{fontSize:9,fontWeight:400}}>×産気率 {SANKI_RATE}</span></th>
+                        <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>キロ売り（kg）</th>
+                        <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"#059669",borderBottom:"1px solid var(--border)"}}>合計販売キロ（kg）</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||(a.period==="前期"?-1:1)-(b.period==="前期"?-1:1)).map(g=>{
-                        const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
-                        const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
-                        const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
+                      {FISCAL_MONTHS.map(({label,year,month})=>{
+                        const key=monthKey(year,month),u=gasUsage[key]||{};
+                        const inspM3=u.inspection_m3||0,kiloSell=u.kilo_sell||0,inspCnt=u.inspection_count||0;
+                        const kiloFromInsp=Math.round(inspM3*SANKI_RATE*10)/10;
+                        const totalKilo=Math.round((kiloFromInsp+kiloSell)*10)/10;
                         return (
-                          <tr key={g.id} style={isMonthClosed(g.monthKey)?{background:"#fafafa",opacity:.85}:{}}>
-                            <td style={{fontWeight:600}}>
-                              {mLabel}
-                              {isMonthClosed(g.monthKey)&&<span style={{marginLeft:6,fontSize:10,color:"var(--red)",fontWeight:700}}>確定</span>}
-                            </td>
-                            <td>
-                              <span style={{display:"inline-block",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,
-                                background:g.period==="前期"?"var(--gold-bg)":"var(--green-bg)",
-                                color:g.period==="前期"?"var(--gold)":"var(--green)",
-                                border:`1px solid ${g.period==="前期"?"#fcd34d":"#6ee7b7"}`
-                              }}>{g.period}</span>
-                            </td>
-                            <td className="num gold">{fmt(g.forecast)}</td>
-                            <td>
-                              <input className="gas-actual-input" type="number" value={inputVal}
-                                readOnly={isMonthClosed(g.monthKey)}
-                                onClick={()=>{ if(isMonthClosed(g.monthKey)) alert('この月は確定済みです。売上管理表から解除してください（暗証番号:5570）'); }}
-                                onChange={e=>{ if(!isMonthClosed(g.monthKey)) setGasActualInputs({...gasActualInputs,[g.id]:e.target.value}); }}
-                                onBlur={()=>{ if(!isMonthClosed(g.monthKey)) handleGasActualSave(g.id); }}
-                                placeholder="実績入力"
-                                style={{borderColor:g.isActual?"var(--green)":"var(--border)", background:isMonthClosed(g.monthKey)?"#f1f5f9":"", cursor:isMonthClosed(g.monthKey)?"not-allowed":""}}
-                              />
-                            </td>
-                            <td>{diff!=null?(<span className={diff>=0?"diff-pos":"diff-neg"}>{diff>=0?"▲ ":"▼ "}{Math.abs(diff).toLocaleString()}円</span>):(<span style={{color:"var(--border2)"}}>—</span>)}</td>
-                            <td>
-                              <span style={{padding:"4px 10px",fontSize:11,fontWeight:700,borderRadius:20,display:"inline-block",
-                                background:g.isActual?"var(--green-bg)":"var(--gold-bg)",
-                                color:g.isActual?"var(--green)":"var(--gold)",
-                                border:`1.5px solid ${g.isActual?"#6ee7b7":"#fcd34d"}`}}>
-                                {g.isActual?"✓ 実績":"見込"}
+                          <tr key={key} style={{borderBottom:"1px solid var(--border)"}}>
+                            <td style={{padding:"10px 14px",fontWeight:600}}>{label}</td>
+                            <td style={{padding:"8px 14px"}}><GasUsageInput monthKey={key} field="inspection_count" value={inspCnt} onSave={handleGasUsage} /></td>
+                            <td style={{padding:"8px 14px"}}><GasUsageInput monthKey={key} field="inspection_m3" value={inspM3} onSave={handleGasUsage} /></td>
+                            <td style={{padding:"10px 14px",textAlign:"center"}}>
+                              <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:kiloFromInsp>0?"var(--accent)":"var(--muted)"}}>
+                                {kiloFromInsp>0?kiloFromInsp.toLocaleString()+" kg":"—"}
                               </span>
                             </td>
-                            <td><button className="btn btn-danger" onClick={()=>{setGasDeleteTarget(g);setGasDeleteInput("");}}>🗑 削除</button></td>
+                            <td style={{padding:"8px 14px"}}><GasUsageInput monthKey={key} field="kilo_sell" value={kiloSell} onSave={handleGasUsage} /></td>
+                            <td style={{padding:"10px 14px",textAlign:"right"}}>
+                              <span style={{fontFamily:"'DM Mono',monospace",fontSize:14,fontWeight:900,color:totalKilo>0?"#059669":"var(--muted)"}}>
+                                {totalKilo>0?totalKilo.toLocaleString()+" kg":"—"}
+                              </span>
+                            </td>
                           </tr>
                         );
                       })}
+                      {(()=>{
+                        const tM3=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.inspection_m3||0),0);
+                        const tKS=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.kilo_sell||0),0);
+                        const tCnt=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.inspection_count||0),0);
+                        const tKiloInsp=Math.round(tM3*SANKI_RATE*10)/10;
+                        const tKilo=Math.round((tKiloInsp+tKS)*10)/10;
+                        return (
+                          <tr style={{background:"linear-gradient(90deg,var(--green-bg),#eff6ff)",borderTop:"2px solid var(--green)"}}>
+                            <td style={{padding:"12px 14px",fontWeight:900,color:"var(--green)"}}>🏆 年度合計</td>
+                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tCnt>0?tCnt.toLocaleString()+" 件":"—"}</td>
+                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tM3>0?tM3.toLocaleString()+" m³":"—"}</td>
+                            <td style={{padding:"12px 14px",textAlign:"center",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--accent)"}}>{tKiloInsp>0?tKiloInsp.toLocaleString()+" kg":"—"}</td>
+                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tKS>0?tKS.toLocaleString()+" kg":"—"}</td>
+                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:900,color:"#059669"}}>{tKilo>0?tKilo.toLocaleString()+" kg":"—"}</td>
+                          </tr>
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
-              )}
+              </CollapsibleSection>
             </>
           )}
 
