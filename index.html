@@ -1006,7 +1006,7 @@ function App() {
                         <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>月</th>
                         <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>検針件数（件）</th>
                         <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>検針数量（m³）</th>
-                        <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>→ キロ換算<br/><span style={{fontSize:9,fontWeight:400}}>×産気率 {SANKI_RATE}</span></th>
+                        <th style={{padding:"10px 14px",textAlign:"center",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>→ キロ換算<br/><span style={{fontSize:9,fontWeight:400}}>÷産気率 {SANKI_RATE}</span></th>
                         <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"var(--muted)",borderBottom:"1px solid var(--border)"}}>キロ売り（kg）</th>
                         <th style={{padding:"10px 14px",textAlign:"right",fontSize:11,fontWeight:700,color:"#059669",borderBottom:"1px solid var(--border)"}}>合計販売キロ（kg）</th>
                       </tr>
@@ -1015,7 +1015,7 @@ function App() {
                       {FISCAL_MONTHS.map(({label,year,month})=>{
                         const key=monthKey(year,month),u=gasUsage[key]||{};
                         const inspM3=u.inspection_m3||0,kiloSell=u.kilo_sell||0,inspCnt=u.inspection_count||0;
-                        const kiloFromInsp=Math.round(inspM3*SANKI_RATE*10)/10;
+                        const kiloFromInsp=Math.round(inspM3/SANKI_RATE*10)/10;
                         const totalKilo=Math.round((kiloFromInsp+kiloSell)*10)/10;
                         return (
                           <tr key={key} style={{borderBottom:"1px solid var(--border)"}}>
@@ -1040,12 +1040,12 @@ function App() {
                         const tM3=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.inspection_m3||0),0);
                         const tKS=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.kilo_sell||0),0);
                         const tCnt=FISCAL_MONTHS.reduce((s,{year,month})=>s+(gasUsage[monthKey(year,month)]?.inspection_count||0),0);
-                        const tKiloInsp=Math.round(tM3*SANKI_RATE*10)/10;
+                        const tKiloInsp=Math.round(tM3/SANKI_RATE*10)/10;
                         const tKilo=Math.round((tKiloInsp+tKS)*10)/10;
                         return (
                           <tr style={{background:"linear-gradient(90deg,var(--green-bg),#eff6ff)",borderTop:"2px solid var(--green)"}}>
                             <td style={{padding:"12px 14px",fontWeight:900,color:"var(--green)"}}>🏆 年度合計</td>
-                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tCnt>0?tCnt.toLocaleString()+" 件":"—"}</td>
+                            <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>—</td>
                             <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tM3>0?tM3.toLocaleString()+" m³":"—"}</td>
                             <td style={{padding:"12px 14px",textAlign:"center",fontFamily:"'DM Mono',monospace",fontWeight:700,color:"var(--accent)"}}>{tKiloInsp>0?tKiloInsp.toLocaleString()+" kg":"—"}</td>
                             <td style={{padding:"12px 14px",textAlign:"right",fontFamily:"'DM Mono',monospace",fontWeight:700}}>{tKS>0?tKS.toLocaleString()+" kg":"—"}</td>
