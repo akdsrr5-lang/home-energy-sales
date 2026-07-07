@@ -557,23 +557,23 @@ function App() {
   const [syncing, setSyncing]   = useState(false);
 
   useEffect(() => {
-    // まずローカルキャッシュで即表示
-    const p = lsGet("he_properties"); if(p) setProperties(p);
-    const b = lsGet("he_budgets");    if(b) setBudgets(b);
-    const g = lsGet("he_gas");        if(g) setGasEntries(g);
-    const l = lsGet("he_budgetlocks"); if(l) setBudgetLocks(l);
+    // propertiesはlocalStorageを使わずスプレッドシートのみを正とする
+    // その他はlocalStorageで即表示（ちらつき防止）
+    const b = lsGet("he_budgets");       if(b) setBudgets(b);
+    const g = lsGet("he_gas");           if(g) setGasEntries(g);
+    const l = lsGet("he_budgetlocks");   if(l) setBudgetLocks(l);
     const cm = lsGet("he_closedmonths"); if(cm) setClosedMonths(cm);
     const cr = lsGet("he_closeremarks"); if(cr) setCloseRemarks(cr);
     const gu = lsGet("he_gasusage");     if(gu) setGasUsage(gu);
+    // スプレッドシートから常に最新を取得
     gasLoad().then(data => {
+      // propertiesは常にスプレッドシートを正とする
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
-      if(data.budgets)    { setBudgets(data.budgets);       lsSet("he_budgets",    data.budgets); }
-      if(data.gas)        {
+      if(data.budgets)      { setBudgets(data.budgets);           lsSet("he_budgets",       data.budgets); }
+      if(data.gas)          {
         const fixedGas = data.gas.map(g => g.actual!=null && g.actual>0 && !g.isActual ? {...g, isActual:true} : g);
         setGasEntries(fixedGas); lsSet("he_gas", fixedGas);
-        if(fixedGas.some((g,i)=>g.isActual !== data.gas[i].isActual)) {
-          saveKey('gas', fixedGas);
-        }
+        if(fixedGas.some((g,i)=>g.isActual !== data.gas[i].isActual)) saveKey('gas', fixedGas);
       }
       if(data.locks)        { setBudgetLocks(data.locks);         lsSet("he_budgetlocks",   data.locks); }
       if(data.closedMonths) { setClosedMonths(data.closedMonths); lsSet("he_closedmonths",  data.closedMonths); }
