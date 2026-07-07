@@ -610,14 +610,7 @@ function App() {
     lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
     flash();
     setSyncing(true);
-    gasSave(props, bdgs, gas).then(()=>{
-      // 保存成功後にスプレッドシートから再読み込みして画面を最新化
-      return gasLoad().then(data => {
-        if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
-      }).catch(()=>{});
-    }).finally(()=>{
-      setSyncing(false);
-    });
+    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
   };
   const saveGas = gas => {
     lsSet("he_gas", gas); flash();
