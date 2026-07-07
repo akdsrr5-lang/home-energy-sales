@@ -319,9 +319,16 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbzpEaLlJwAvhJmyBKYo0Afq
 const lsGet = key => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):null; } catch { return null; } };
 const lsSet = (key,val) => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} };
 
-// スプレッドシートからロード
+// スプレッドシートからロード（リダイレクト対応）
 function gasLoad() {
-  return fetch(GAS_URL + '?action=load').then(r => r.json());
+  return fetch(GAS_URL + '?action=load', { redirect: 'follow' })
+    .then(r => r.text())
+    .then(text => {
+      // レスポンスからJSONを抽出（リダイレクト後のHTMLが混入する場合対策）
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('no JSON in response');
+      return JSON.parse(match[0]);
+    });
 }
 // GETフェッチで保存（リトライ付き）
 function saveKey(key, val) {
@@ -557,19 +564,17 @@ function App() {
   const [syncing, setSyncing]   = useState(false);
 
   useEffect(() => {
-    // propertiesはlocalStorageを使わずスプレッドシートのみを正とする
-    // その他はlocalStorageで即表示（ちらつき防止）
-    const b = lsGet("he_budgets");       if(b) setBudgets(b);
-    const g = lsGet("he_gas");           if(g) setGasEntries(g);
+    // まずlocalStorageで即表示（空白画面を防ぐ）
+    const p = lsGet("he_properties"); if(p) setProperties(p);
+    const b = lsGet("he_budgets");    if(b) setBudgets(b);
+    const g = lsGet("he_gas");        if(g) setGasEntries(g);
     const l = lsGet("he_budgetlocks");   if(l) setBudgetLocks(l);
     const cm = lsGet("he_closedmonths"); if(cm) setClosedMonths(cm);
     const cr = lsGet("he_closeremarks"); if(cr) setCloseRemarks(cr);
     const gu = lsGet("he_gasusage");     if(gu) setGasUsage(gu);
-    // スプレッドシートから常に最新を取得
+    // スプレッドシートから最新を取得して必ず上書き
     gasLoad().then(data => {
-      // propertiesは常にスプレッドシートを正とする
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
-      else { console.error('load: properties missing', data); }
       if(data.budgets)      { setBudgets(data.budgets);           lsSet("he_budgets",       data.budgets); }
       if(data.gas)          {
         const fixedGas = data.gas.map(g => g.actual!=null && g.actual>0 && !g.isActual ? {...g, isActual:true} : g);
