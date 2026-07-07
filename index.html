@@ -569,6 +569,7 @@ function App() {
     gasLoad().then(data => {
       // propertiesは常にスプレッドシートを正とする
       if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
+      else { console.error('load: properties missing', data); }
       if(data.budgets)      { setBudgets(data.budgets);           lsSet("he_budgets",       data.budgets); }
       if(data.gas)          {
         const fixedGas = data.gas.map(g => g.actual!=null && g.actual>0 && !g.isActual ? {...g, isActual:true} : g);
@@ -579,7 +580,11 @@ function App() {
       if(data.closedMonths) { setClosedMonths(data.closedMonths); lsSet("he_closedmonths",  data.closedMonths); }
       if(data.closeRemarks) { setCloseRemarks(data.closeRemarks); lsSet("he_closeremarks",  data.closeRemarks); }
       if(data.gasUsage)     { setGasUsage(data.gasUsage);         lsSet("he_gasusage",      data.gasUsage); }
-    }).catch(()=>{ /* オフライン時はキャッシュのまま */ }).finally(()=>setLoading(false));
+    }).catch((e)=>{ 
+      console.error('gasLoad failed:', e);
+      // フォールバック：localStorageから読み込む
+      const p = lsGet("he_properties"); if(p) setProperties(p);
+    }).finally(()=>setLoading(false));
   }, []);
 
   const flash = () => { setSaveMsg(true); setTimeout(()=>setSaveMsg(false),2500); };
@@ -600,9 +605,13 @@ function App() {
     lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
     flash();
     setSyncing(true);
-    gasSave(props, bdgs, gas).finally(()=>{
+    gasSave(props, bdgs, gas).then(()=>{
+      // 保存成功後にスプレッドシートから再読み込みして画面を最新化
+      return gasLoad().then(data => {
+        if(data.properties) { setProperties(data.properties); lsSet("he_properties", data.properties); }
+      }).catch(()=>{});
+    }).finally(()=>{
       setSyncing(false);
-      verifySave(props);
     });
   };
   const saveGas = gas => {
