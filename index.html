@@ -324,42 +324,49 @@ function gasLoad() {
   return fetch(GAS_URL + '?action=load', { redirect: 'follow' })
     .then(r => r.text())
     .then(text => {
-      // レスポンスからJSONを抽出（リダイレクト後のHTMLが混入する場合対策）
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) throw new Error('no JSON in response');
       return JSON.parse(match[0]);
     });
 }
-// GETフェッチで保存（リトライ付き）
-function saveKey(key, val) {
+// 保存して確認するまでリトライ
+function saveAndVerify(key, val, maxRetry=5) {
   const url = GAS_URL + '?action=save_each&key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(JSON.stringify(val));
-  const attempt = (n) => fetch(url)
-    .then(() => ({ ok: true }))
-    .catch(e => {
-      if (n > 0) return new Promise(r => setTimeout(r, 800)).then(() => attempt(n - 1));
-      console.error('saveKey failed:', key, e);
+  const expected = Array.isArray(val) ? val.length : JSON.stringify(val);
+  
+  const doSave = () => fetch(url).catch(()=>{});
+  
+  const verify = (retry) => {
+    return gasLoad().then(data => {
+      const saved = data[key];
+      const match = Array.isArray(val)
+        ? (Array.isArray(saved) && saved.length === val.length && 
+           JSON.stringify(saved) === JSON.stringify(val))
+        : JSON.stringify(saved) === JSON.stringify(val);
+      
+      if (match) return { ok: true };
+      if (retry <= 0) throw new Error('verify failed after retries');
+      // 一致しなければ再保存して再確認
+      return doSave().then(() => 
+        new Promise(r => setTimeout(r, 1500)).then(() => verify(retry - 1))
+      );
     });
-  return attempt(2); // 最大3回試行
+  };
+  
+  return doSave()
+    .then(() => new Promise(r => setTimeout(r, 1500)))
+    .then(() => verify(maxRetry));
 }
-// 保存後にloadで確認し、件数が合わなければ再保存
-function saveKeyWithVerify(key, val) {
-  return saveKey(key, val).then(() => {
-    setTimeout(() => {
-      gasLoad().then(data => {
-        const saved = data[key];
-        const ok = Array.isArray(val)
-          ? (Array.isArray(saved) && saved.length === val.length)
-          : (saved && JSON.stringify(saved) === JSON.stringify(val));
-        if (!ok) { console.warn('verify failed, retry:', key); saveKey(key, val); }
-      }).catch(() => {});
-    }, 2000);
-  });
-}
-// スプレッドシートへ保存（propertiesは検証付き）
+// スプレッドシートへ保存（確認付き）
 function gasSave(properties, budgets, gas) {
-  return saveKeyWithVerify('properties', properties)
+  return saveAndVerify('properties', properties)
     .then(() => saveKey('budgets', budgets))
     .then(() => saveKey('gas', gas));
+}
+// 軽量保存（確認なし）
+function saveKey(key, val) {
+  const url = GAS_URL + '?action=save_each&key=' + encodeURIComponent(key) + '&val=' + encodeURIComponent(JSON.stringify(val));
+  return fetch(url).catch(()=>{});
 }
 // ロックだけ保存
 function saveLocks(locks) {
@@ -610,7 +617,10 @@ function App() {
     lsSet("he_properties", props); lsSet("he_budgets", bdgs); lsSet("he_gas", gas);
     flash();
     setSyncing(true);
-    gasSave(props, bdgs, gas).finally(()=>setSyncing(false));
+    gasSave(props, bdgs, gas)
+      .then(()=>{ console.log('save verified ✅'); })
+      .catch(e=>{ console.error('save failed:', e); })
+      .finally(()=>setSyncing(false));
   };
   const saveGas = gas => {
     lsSet("he_gas", gas); flash();
