@@ -278,6 +278,26 @@
       .tab { padding: 12px 14px; font-size: 12px; }
       .stats-bar { gap: 10px; }
     }
+
+    /* ── 印刷用スタイル ── */
+    @media print {
+      body { background: #fff !important; font-size: 10px !important; }
+      .header, .tabs, .no-print { display: none !important; }
+      .content { padding: 0 !important; max-width: 100% !important; }
+      .print-only { display: block !important; }
+      .table-wrap {
+        overflow: visible !important;
+        border: none !important;
+        box-shadow: none !important;
+        max-height: none !important;
+      }
+      table { font-size: 9px !important; }
+      thead th { font-size: 8px !important; padding: 5px 6px !important; }
+      tbody td { padding: 5px 6px !important; white-space: normal !important; }
+      .budget-input { border: none !important; background: transparent !important; padding: 0 !important; font-size: 9px !important; }
+      @page { size: A4 landscape; margin: 10mm; }
+    }
+    .print-only { display: none; }
   </style>
 </head>
 <body>
@@ -1087,7 +1107,19 @@ function App() {
           {/* ── 売上管理表 ── */}
           {tab==="budget" && (
             <>
-              <div className="section-title">月別 予算対比表（2026年度）</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+                <div className="section-title no-print" style={{margin:0,flex:1}}>月別 予算対比表（2026年度）</div>
+                <button className="no-print" onClick={()=>window.print()}
+                  style={{padding:"8px 18px",fontSize:12,fontWeight:700,borderRadius:8,cursor:"pointer",
+                    border:"1.5px solid var(--accent)",background:"var(--accent)",color:"#fff",
+                    display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:16}}>
+                  🖨️ PDF出力
+                </button>
+              </div>
+              <div className="print-only" style={{marginBottom:12}}>
+                <div style={{fontSize:16,fontWeight:900,textAlign:"center"}}>ホームエネルギー部　月別 予算対比表（2026年度）</div>
+                <div style={{fontSize:10,textAlign:"center",color:"#666",marginTop:4}}>出力日：{new Date().toLocaleDateString("ja-JP")}</div>
+              </div>
               <div className="table-wrap" style={{maxHeight:"72vh",overflowY:"auto"}}>
                 <table className="budget-table">
                   <thead style={{position:"sticky",top:0,zIndex:10}}>
