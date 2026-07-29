@@ -544,6 +544,7 @@ function App() {
   const [gasEntries, setGasEntries] = useState([]);
   const [gasForm, setGasForm]   = useState(EMPTY_GAS_FORM);
   const [gasActualInputs, setGasActualInputs] = useState({});
+  const [gasProfitInputs, setGasProfitInputs] = useState({});
   const [form, setForm]         = useState(EMPTY_FORM);
   const [filter, setFilter]     = useState("all");
   const [staffFilter, setStaffFilter] = useState("all");
@@ -738,6 +739,18 @@ function App() {
     const next = gasEntries.map(g=>g.id===id?{...g,actual:val,isActual:true}:g);
     setGasEntries(next); saveGas(next);
   };
+  const handleGasProfitSave = id => {
+    const val = parseFloat(gasProfitInputs[id]);
+    if(isNaN(val)) return;
+    const next = gasEntries.map(g=>g.id===id?{...g,profit:val}:g);
+    setGasEntries(next); saveGas(next);
+  };
+  const handleGasStatusToggle = id => {
+    const g = gasEntries.find(g=>g.id===id);
+    if(!g) return;
+    const next = gasEntries.map(e=>e.id===id?{...e,isActual:!e.isActual}:e);
+    setGasEntries(next); saveGas(next);
+  };
 
   const filtered = (() => {
     let list = filter==="all" ? properties : properties.filter(p=>p.status===filter);
@@ -748,9 +761,11 @@ function App() {
   const gasMonthly = FISCAL_MONTHS.reduce((acc,{year,month})=>{
     const key=monthKey(year,month), ents=gasEntries.filter(g=>g.monthKey===key);
     acc[key]={
-      forecast: ents.filter(g=>!g.isActual).reduce((s,g)=>s+(g.forecast||0),0),
-      actual:   ents.filter(g=>g.isActual&&g.actual!=null).reduce((s,g)=>s+g.actual,0),
-      hasActual: ents.some(g=>g.isActual&&g.actual!=null)
+      forecast:  ents.filter(g=>!g.isActual).reduce((s,g)=>s+(g.forecast||0),0),
+      actual:    ents.filter(g=>g.isActual&&g.actual!=null).reduce((s,g)=>s+g.actual,0),
+      profit:    ents.filter(g=>g.isActual&&g.profit!=null).reduce((s,g)=>s+(g.profit||0),0),
+      hasActual: ents.some(g=>g.isActual&&g.actual!=null),
+      hasProfit: ents.some(g=>g.isActual&&g.profit!=null&&g.profit>0),
     };
     return acc;
   },{});
@@ -993,17 +1008,19 @@ function App() {
                 ) : (
                   <div className="table-wrap">
                     <table>
-                      <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
+                      <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>利益額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
                       <tbody>
                         {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||(a.period==="前期"?-1:1)-(b.period==="前期"?-1:1)).map(g=>{
                           const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
                           const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
                           const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
+                          const profitVal=gasProfitInputs[g.id]!=null?gasProfitInputs[g.id]:(g.profit!=null?g.profit:"");
+                          const closed=isMonthClosed(g.monthKey);
                           return (
-                            <tr key={g.id} style={isMonthClosed(g.monthKey)?{background:"#fafafa",opacity:.85}:{}}>
+                            <tr key={g.id} style={closed?{background:"#fafafa",opacity:.85}:{}}>
                               <td style={{fontWeight:600}}>
                                 {mLabel}
-                                {isMonthClosed(g.monthKey)&&<span style={{marginLeft:6,fontSize:10,color:"var(--red)",fontWeight:700}}>確定</span>}
+                                {closed&&<span style={{marginLeft:6,fontSize:10,color:"var(--red)",fontWeight:700}}>確定</span>}
                               </td>
                               <td>
                                 <span style={{display:"inline-block",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,
@@ -1015,22 +1032,34 @@ function App() {
                               <td className="num gold">{fmt(g.forecast)}</td>
                               <td>
                                 <input className="gas-actual-input" type="number" value={inputVal}
-                                  readOnly={isMonthClosed(g.monthKey)}
-                                  onClick={()=>{ if(isMonthClosed(g.monthKey)) alert('この月は確定済みです。売上管理表から解除してください（暗証番号:5570）'); }}
-                                  onChange={e=>{ if(!isMonthClosed(g.monthKey)) setGasActualInputs({...gasActualInputs,[g.id]:e.target.value}); }}
-                                  onBlur={()=>{ if(!isMonthClosed(g.monthKey)) handleGasActualSave(g.id); }}
+                                  readOnly={closed}
+                                  onClick={()=>{ if(closed) alert('この月は確定済みです。売上管理表から解除してください（暗証番号:5570）'); }}
+                                  onChange={e=>{ if(!closed) setGasActualInputs({...gasActualInputs,[g.id]:e.target.value}); }}
+                                  onBlur={()=>{ if(!closed) handleGasActualSave(g.id); }}
                                   placeholder="実績入力"
-                                  style={{borderColor:g.isActual?"var(--green)":"var(--border)",background:isMonthClosed(g.monthKey)?"#f1f5f9":"",cursor:isMonthClosed(g.monthKey)?"not-allowed":""}}
+                                  style={{borderColor:g.isActual?"var(--green)":"var(--border)",background:closed?"#f1f5f9":"",cursor:closed?"not-allowed":""}}
+                                />
+                              </td>
+                              <td>
+                                <input className="gas-actual-input" type="number" value={profitVal}
+                                  readOnly={closed}
+                                  onClick={()=>{ if(closed) alert('この月は確定済みです。'); }}
+                                  onChange={e=>{ if(!closed) setGasProfitInputs({...gasProfitInputs,[g.id]:e.target.value}); }}
+                                  onBlur={()=>{ if(!closed) handleGasProfitSave(g.id); }}
+                                  placeholder="利益入力"
+                                  style={{borderColor:g.profit!=null&&g.profit>0?"var(--accent)":"var(--border)",background:closed?"#f1f5f9":"",cursor:closed?"not-allowed":""}}
                                 />
                               </td>
                               <td>{diff!=null?(<span className={diff>=0?"diff-pos":"diff-neg"}>{diff>=0?"▲ ":"▼ "}{Math.abs(diff).toLocaleString()}円</span>):(<span style={{color:"var(--border2)"}}>—</span>)}</td>
                               <td>
-                                <span style={{padding:"4px 10px",fontSize:11,fontWeight:700,borderRadius:20,display:"inline-block",
-                                  background:g.isActual?"var(--green-bg)":"var(--gold-bg)",
-                                  color:g.isActual?"var(--green)":"var(--gold)",
-                                  border:`1.5px solid ${g.isActual?"#6ee7b7":"#fcd34d"}`}}>
+                                <button onClick={()=>{ if(!closed) handleGasStatusToggle(g.id); }}
+                                  disabled={closed}
+                                  style={{padding:"4px 10px",fontSize:11,fontWeight:700,borderRadius:20,display:"inline-block",cursor:closed?"default":"pointer",border:"none",
+                                    background:g.isActual?"var(--green-bg)":"var(--gold-bg)",
+                                    color:g.isActual?"var(--green)":"var(--gold)",
+                                    outline:`1.5px solid ${g.isActual?"#6ee7b7":"#fcd34d"}`}}>
                                   {g.isActual?"✓ 実績":"見込"}
-                                </span>
+                                </button>
                               </td>
                               <td><button className="btn btn-danger" onClick={()=>{setGasDeleteTarget(g);setGasDeleteInput("");}}>🗑 削除</button></td>
                             </tr>
@@ -1191,10 +1220,13 @@ function App() {
                         const rGas=bGas>0?(aGas/bGas)*100:null,rKougu=bKougu>0?(aKougu/bKougu)*100:null;
                         const rFTotal=bTotal>0?(fTotal/bTotal)*100:null,rATotal=bTotal>0?(aTotal/bTotal)*100:null;
                         const closed = isMonthClosed(key);
-                        const ACell = (actual, budget) => {
+                        const gasProfit = gasMonthly[key].hasProfit ? gasMonthly[key].profit : null;
+                        const kouguProfit = properties.filter(p=>p.status==="売上"&&dateToMK(p.date)===key).reduce((s,p)=>s+calcProfit(p.sales,p.purchase),0);
+                        const ACell = (actual, budget, profit, profitLabel) => {
                           const rate = budget>0?Math.round((actual/budget)*100):null;
-                          return (<div style={{textAlign:"right",lineHeight:1.5}}>
+                          return (<div style={{textAlign:"right",lineHeight:1.6}}>
                             <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:actual>0?"var(--green)":"var(--border2)",fontWeight:600}}>{actual>0?fmtK(actual):"—"}</div>
+                            {profit!=null&&profit>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",fontWeight:600}}>利益:{fmtK(profit)}</div>}
                             {rate!==null&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate}%　{actual>=budget?"▲":"▼"}{fmtK(Math.abs(actual-budget))}</div>}
                           </div>);
                         };
@@ -1219,8 +1251,8 @@ function App() {
                           <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_gas"} locked={lockedGas||closed} value={budgets[key+"_gas"]||0} onSave={handleBudget} onRequestUnlock={closed?()=>openUnlockModal(key):requestUnlock}/>{!lockedGas&&!closed&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_gas")} style={{padding:"2px 4px",fontSize:10,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
                           <td style={{background:"#f8fafc"}}><div style={{display:"flex",alignItems:"center",gap:3}}><BudgetInput bkey={key+"_kougu"} locked={lockedKougu||closed} value={budgets[key+"_kougu"]||0} onSave={handleBudget} onRequestUnlock={closed?()=>openUnlockModal(key):requestUnlock}/>{!lockedKougu&&!closed&&<button tabIndex={-1} onClick={()=>lockBudget(key+"_kougu")} style={{padding:"2px 4px",fontSize:10,cursor:"pointer",border:"1px solid var(--border)",borderRadius:4,background:"transparent",color:"var(--muted)"}}>🔒</button>}</div></td>
                           <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:bTotal>0?"var(--text2)":"var(--border2)"}}>{fmtK(bTotal)}</td>
-                          <td>{ACell(aGas,bGas)}</td>
-                          <td>{ACell(aKougu,bKougu)}</td>
+                          <td>{ACell(aGas,bGas,gasProfit)}</td>
+                          <td>{ACell(aKougu,bKougu,kouguProfit>0?kouguProfit:null)}</td>
                           <td className="num" style={{fontWeight:700,color:aTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(aTotal)}</td>
                           <td style={{borderRight:"2px solid var(--border)"}}>{R(rATotal)}</td>
                           <td>{FCell2(fGas,bGas,aGas)}</td>
