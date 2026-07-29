@@ -654,6 +654,7 @@ function App() {
   };
   const SANKI_RATE = 0.482; // 産気率
   const isMonthClosed = key => !!closedMonths[key];
+  const CLOSE_PIN = "5570";
   const [closeRemarks, setCloseRemarks] = useState({}); // 月ごとの乖離理由
   const saveClosedMonths = next => {
     setClosedMonths(next); lsSet("he_closedmonths", next);
