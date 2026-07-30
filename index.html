@@ -1269,15 +1269,17 @@ function App() {
                             {rate!==null&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate}%　{actual>=budget?"▲":"▼"}{fmtK(Math.abs(actual-budget))}</div>}
                           </div>);
                         };
-                        const FCell2 = (fVal, bVal, aVal, fProfit, rmnProfit) => {
+                        // ガスの残（見込 - 実績）の利益
+                        const rmnGasProfit = Math.max(gasForecastProfit - (gasMonthly[key].hasProfit ? gasMonthly[key].profit : 0), 0);
+                        const FCell2 = (fVal, bVal, aVal, rmnProfit) => {
                           const rate = bVal>0?Math.round((fVal/bVal)*100):null;
                           const rmn = Math.max(fVal-aVal,0);
-                          return (<div style={{textAlign:"right",lineHeight:1.6}}>
+                          return (<div style={{textAlign:"right",lineHeight:1.7}}>
                             <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:fVal>0?"var(--gold)":"var(--border2)",fontWeight:600}}>{fVal>0?fmtK(fVal):"—"}</div>
-                            {fProfit>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",fontWeight:600}}>利益:{fmtK(fProfit)}</div>}
                             {fVal>0&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:"var(--muted)"}}>
-                              残:{fmtK(rmn)}{rmnProfit>0&&<span style={{color:"var(--accent)",marginLeft:3}}>利益:{fmtK(rmnProfit)}</span>}{rate!==null&&<span style={{color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)",marginLeft:3}}>{rate}%</span>}
+                              残:{fmtK(rmn)}{rmnProfit>0&&<span style={{color:"var(--accent)",fontWeight:600,marginLeft:3}}>利益:{fmtK(rmnProfit)}</span>}
                             </div>}
+                            {rate!==null&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate}%</div>}
                           </div>);
                         };
                         return(<>
@@ -1312,11 +1314,11 @@ function App() {
                           )}
                           {/* 見込列 */}
                           {budgetColVis.forecast ? (<>
-                            <td>{FCell2(fGas,bGas,aGas,gasForecastProfit,0)}</td>
-                            <td>{FCell2(fKougu,bKougu,aKougu,0,rmnKouguProfit)}</td>
+                            <td>{FCell2(fGas,bGas,aGas,rmnGasProfit)}</td>
+                            <td>{FCell2(fKougu,bKougu,aKougu,rmnKouguProfit)}</td>
                             <td style={{fontWeight:700,color:fTotal>0?"var(--gold)":"var(--border2)",textAlign:"right"}}>
                               <div style={{fontFamily:"'DM Mono',monospace",fontSize:14,fontWeight:700}}>{fmtK(fTotal)}</div>
-                              {(gasForecastProfit>0||rmnKouguProfit>0)&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--accent)",fontWeight:600}}>利益:{fmtK(gasForecastProfit+rmnKouguProfit)}</div>}
+                              {(rmnGasProfit>0||rmnKouguProfit>0)&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"var(--accent)",fontWeight:600}}>残利益:{fmtK(rmnGasProfit+rmnKouguProfit)}</div>}
                             </td>
                             <td>{R(rFTotal)}</td>
                           </>) : (
@@ -1352,9 +1354,9 @@ function App() {
                           <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--green)"}}>{fmtK(g.aTotal)}</span></td>
                         )}
                         {budgetColVis.forecast ? (<>
-                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fGas)}</div>{g.fGasProfit>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)"}}>利益:{fmtK(g.fGasProfit)}</div>}{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fGas-g.aGas,0))}</div>}</div></td>
-                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fKougu)}</div>{g.fKouguProfit>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)"}}>利益:{fmtK(g.fKouguProfit)}</div>}{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fKougu-g.aKougu,0))}</div>}</div></td>
-                          <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span>{(g.fGasProfit+g.fKouguProfit)>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",textAlign:"right"}}>利益:{fmtK(g.fGasProfit+g.fKouguProfit)}</div>}</td>
+                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fGas)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fGas-g.aGas,0))}{(g.fGasProfit-g.aGasProfit)>0&&<span style={{color:"var(--accent)",marginLeft:3}}>利益:{fmtK(Math.max(g.fGasProfit-g.aGasProfit,0))}</span>}</div>}</div></td>
+                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fKougu)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fKougu-g.aKougu,0))}{g.fKouguProfit>0&&<span style={{color:"var(--accent)",marginLeft:3}}>利益:{fmtK(g.fKouguProfit)}</span>}</div>}</div></td>
+                          <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span>{(g.fGasProfit+g.fKouguProfit)>0&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",textAlign:"right"}}>残利益:{fmtK(Math.max(g.fGasProfit-g.aGasProfit,0)+g.fKouguProfit)}</div>}</td>
                           <td>{R(g.rFTotal,isTotal?15:13)}</td>
                         </>) : (
                           <td><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span></td>
