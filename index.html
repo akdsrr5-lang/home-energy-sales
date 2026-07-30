@@ -545,6 +545,8 @@ function App() {
   const [gasForm, setGasForm]   = useState(EMPTY_GAS_FORM);
   const [gasActualInputs, setGasActualInputs] = useState({});
   const [gasProfitInputs, setGasProfitInputs] = useState({});
+  const [gasForecastInputs, setGasForecastInputs] = useState({});
+  const [gasForecastProfitInputs, setGasForecastProfitInputs] = useState({});
   const [form, setForm]         = useState(EMPTY_FORM);
   const [filter, setFilter]     = useState("all");
   const [staffFilter, setStaffFilter] = useState("all");
@@ -745,6 +747,16 @@ function App() {
     const val = parseFloat(gasProfitInputs[id]);
     if(isNaN(val)) return;
     const next = gasEntries.map(g=>g.id===id?{...g,profit:val}:g);
+    setGasEntries(next); saveGas(next);
+  };
+  const handleGasForecastSave = id => {
+    const val = parseFloat(gasForecastInputs[id]); if(isNaN(val)) return;
+    const next = gasEntries.map(g=>g.id===id?{...g,forecast:val}:g);
+    setGasEntries(next); saveGas(next);
+  };
+  const handleGasForecastProfitSave = id => {
+    const val = parseFloat(gasForecastProfitInputs[id]); if(isNaN(val)) return;
+    const next = gasEntries.map(g=>g.id===id?{...g,forecastProfit:val}:g);
     setGasEntries(next); saveGas(next);
   };
   const handleGasStatusToggle = id => {
@@ -1016,13 +1028,22 @@ function App() {
                 ) : (
                   <div className="table-wrap">
                     <table>
-                      <thead><tr><th>月</th><th>期</th><th>見込金額</th><th>実績金額</th><th>利益額</th><th>差額</th><th>ステータス</th><th>操作</th></tr></thead>
+                      <thead><tr>
+                        <th>月</th><th>期</th>
+                        <th style={{color:"var(--gold)"}}>見込金額</th>
+                        <th style={{color:"var(--gold)"}}>見込利益</th>
+                        <th style={{color:"var(--green)"}}>実績金額</th>
+                        <th style={{color:"var(--green)"}}>実績利益</th>
+                        <th>差額</th><th>ステータス</th><th>操作</th>
+                      </tr></thead>
                       <tbody>
                         {[...gasEntries].sort((a,b)=>a.monthKey.localeCompare(b.monthKey)||(a.period==="前期"?-1:1)-(b.period==="前期"?-1:1)).map(g=>{
                           const mLabel=FISCAL_MONTHS.find(m=>monthKey(m.year,m.month)===g.monthKey)?.label||g.monthKey;
                           const diff=g.isActual&&g.actual!=null?g.actual-g.forecast:null;
                           const inputVal=gasActualInputs[g.id]!=null?gasActualInputs[g.id]:(g.actual!=null?g.actual:"");
                           const profitVal=gasProfitInputs[g.id]!=null?gasProfitInputs[g.id]:(g.profit!=null?g.profit:"");
+                          const forecastVal=gasForecastInputs[g.id]!=null?gasForecastInputs[g.id]:(g.forecast!=null?g.forecast:"");
+                          const forecastProfitVal=gasForecastProfitInputs[g.id]!=null?gasForecastProfitInputs[g.id]:(g.forecastProfit!=null&&g.forecastProfit>0?g.forecastProfit:"");
                           const closed=isMonthClosed(g.monthKey);
                           return (
                             <tr key={g.id} style={closed?{background:"#fafafa",opacity:.85}:{}}>
@@ -1037,7 +1058,29 @@ function App() {
                                   border:`1px solid ${g.period==="前期"?"#fcd34d":"#6ee7b7"}`
                                 }}>{g.period}</span>
                               </td>
-                              <td className="num gold">{fmt(g.forecast)}</td>
+                              {/* 見込金額（編集可） */}
+                              <td>
+                                <input className="gas-actual-input" type="number" value={forecastVal}
+                                  readOnly={closed}
+                                  onClick={()=>{ if(closed) alert('この月は確定済みです。'); }}
+                                  onChange={e=>{ if(!closed) setGasForecastInputs({...gasForecastInputs,[g.id]:e.target.value}); }}
+                                  onBlur={()=>{ if(!closed) handleGasForecastSave(g.id); }}
+                                  placeholder="見込入力"
+                                  style={{borderColor:"var(--gold)",background:closed?"#f1f5f9":"var(--gold-bg)",cursor:closed?"not-allowed":""}}
+                                />
+                              </td>
+                              {/* 見込利益（編集可） */}
+                              <td>
+                                <input className="gas-actual-input" type="number" value={forecastProfitVal}
+                                  readOnly={closed}
+                                  onClick={()=>{ if(closed) alert('この月は確定済みです。'); }}
+                                  onChange={e=>{ if(!closed) setGasForecastProfitInputs({...gasForecastProfitInputs,[g.id]:e.target.value}); }}
+                                  onBlur={()=>{ if(!closed) handleGasForecastProfitSave(g.id); }}
+                                  placeholder="見込利益"
+                                  style={{borderColor:g.forecastProfit>0?"var(--gold)":"var(--border)",background:closed?"#f1f5f9":"var(--gold-bg)",cursor:closed?"not-allowed":""}}
+                                />
+                              </td>
+                              {/* 実績金額 */}
                               <td>
                                 <input className="gas-actual-input" type="number" value={inputVal}
                                   readOnly={closed}
@@ -1048,13 +1091,14 @@ function App() {
                                   style={{borderColor:g.isActual?"var(--green)":"var(--border)",background:closed?"#f1f5f9":"",cursor:closed?"not-allowed":""}}
                                 />
                               </td>
+                              {/* 実績利益 */}
                               <td>
                                 <input className="gas-actual-input" type="number" value={profitVal}
                                   readOnly={closed}
                                   onClick={()=>{ if(closed) alert('この月は確定済みです。'); }}
                                   onChange={e=>{ if(!closed) setGasProfitInputs({...gasProfitInputs,[g.id]:e.target.value}); }}
                                   onBlur={()=>{ if(!closed) handleGasProfitSave(g.id); }}
-                                  placeholder="利益入力"
+                                  placeholder="実績利益"
                                   style={{borderColor:g.profit!=null&&g.profit>0?"var(--accent)":"var(--border)",background:closed?"#f1f5f9":"",cursor:closed?"not-allowed":""}}
                                 />
                               </td>
