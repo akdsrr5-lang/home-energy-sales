@@ -1273,11 +1273,17 @@ function App() {
                           <td className="num" style={{fontWeight:700,borderRight:"2px solid var(--border)",background:"#f8fafc",color:bTotal>0?"var(--text2)":"var(--border2)"}}>{fmtK(bTotal)}</td>
                           <td>{ACell(aGas,bGas,gasProfit)}</td>
                           <td>{ACell(aKougu,bKougu,kouguProfit>0?kouguProfit:null)}</td>
-                          <td className="num" style={{fontWeight:700,color:aTotal>0?"var(--green)":"var(--border2)"}}>{fmtK(aTotal)}</td>
+                          <td style={{fontWeight:700,color:aTotal>0?"var(--green)":"var(--border2)",textAlign:"right"}}>
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700}}>{fmtK(aTotal)}</div>
+                            {(gasProfit!=null&&gasProfit>0||kouguProfit>0)&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",fontWeight:600}}>利益:{fmtK((gasProfit||0)+kouguProfit)}</div>}
+                          </td>
                           <td style={{borderRight:"2px solid var(--border)"}}>{R(rATotal)}</td>
                           <td>{FCell2(fGas,bGas,aGas,gasForecastProfit,0)}</td>
                           <td>{FCell2(fKougu,bKougu,aKougu,0,rmnKouguProfit)}</td>
-                          <td className="num" style={{fontWeight:700,color:fTotal>0?"var(--gold)":"var(--border2)"}}>{fmtK(fTotal)}</td>
+                          <td style={{fontWeight:700,color:fTotal>0?"var(--gold)":"var(--border2)",textAlign:"right"}}>
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700}}>{fmtK(fTotal)}</div>
+                            {(gasForecastProfit>0||rmnKouguProfit>0)&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:"var(--accent)",fontWeight:600}}>利益:{fmtK(gasForecastProfit+rmnKouguProfit)}</div>}
+                          </td>
                           <td>{R(rFTotal)}</td>
                         </tr>
                         {/* 乖離理由行 - 確定済み月のみ表示 */}
