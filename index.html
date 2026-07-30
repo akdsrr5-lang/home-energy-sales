@@ -776,12 +776,12 @@ function App() {
     const key=monthKey(year,month), ents=gasEntries.filter(g=>g.monthKey===key);
     acc[key]={
       forecast:        ents.filter(g=>!g.isActual).reduce((s,g)=>s+(g.forecast||0),0),
-      forecastProfit:  ents.reduce((s,g)=>s+(g.forecastProfit||0),0), // 全entryの見込利益合計
+      forecastProfit:  ents.filter(g=>!g.isActual).reduce((s,g)=>s+(g.forecastProfit||0),0), // 未実績の見込利益（=残利益）
       actual:          ents.filter(g=>g.isActual&&g.actual!=null).reduce((s,g)=>s+g.actual,0),
       profit:          ents.filter(g=>g.isActual&&g.profit!=null).reduce((s,g)=>s+(g.profit||0),0),
       hasActual:       ents.some(g=>g.isActual&&g.actual!=null),
       hasProfit:       ents.some(g=>g.isActual&&g.profit!=null&&g.profit>0),
-      hasForecastProfit: ents.some(g=>g.forecastProfit!=null&&g.forecastProfit>0),
+      hasForecastProfit: ents.some(g=>!g.isActual&&g.forecastProfit!=null&&g.forecastProfit>0),
     };
     return acc;
   },{});
@@ -1265,7 +1265,7 @@ function App() {
                         const fGas=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecast||0)+(gd.hasActual?gd.actual:0);},0);
                         const fKougu=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>["見積","受注","売上"].includes(p.status)&&(p.status!=="見積"||(p.status==="見積"&&p.rank==="A"))&&dateToMK(p.date)===k).reduce((t,p)=>t+p.sales,0);},0);
                         const fTotal=fGas+fKougu;
-                        const fGasProfit=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecastProfit||0);},0);
+                        const fGasProfit=months.reduce((s,{year,month})=>{const k=monthKey(year,month),gd=gasMonthly[k];return s+(gd.forecastProfit||0);},0); // 未実績の見込利益合計=残利益
                         const fKouguProfit=months.reduce((s,{year,month})=>{const k=monthKey(year,month);return s+properties.filter(p=>["見積","受注","売上"].includes(p.status)&&(p.status!=="見積"||(p.status==="見積"&&p.rank==="A"))&&dateToMK(p.date)===k).reduce((t,p)=>t+calcProfit(p.sales,p.purchase),0);},0);
                         const rmnGas=fGas-aGas, rmnKougu=fKougu-aKougu, rmnTotal=fTotal-aTotal;
                         return {bGas,bKougu,bTotal,aGas,aKougu,aTotal,aGasProfit,aKouguProfit,fGas,fKougu,fTotal,fGasProfit,fKouguProfit,rmnGas,rmnKougu,rmnTotal,
@@ -1313,8 +1313,8 @@ function App() {
                             {rate!==null&&<div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:rate>=100?"var(--green)":rate>=80?"var(--gold)":"var(--red)"}}>{rate}%　{actual>=budget?"▲":"▼"}{fmtK(Math.abs(actual-budget))}</div>}
                           </div>);
                         };
-                        // ガスの残利益 = 見込利益合計 - 実績利益合計
-                        const rmnGasProfit = Math.max((gasMonthly[key].forecastProfit||0) - (gasMonthly[key].hasProfit ? gasMonthly[key].profit : 0), 0);
+                        // ガスの残利益 = 未実績entryのforecastProfit合計
+                        const rmnGasProfit = gasMonthly[key].forecastProfit || 0;
                         const FCell2 = (fVal, bVal, aVal, rmnProfit) => {
                           const rate = bVal>0?Math.round((fVal/bVal)*100):null;
                           const rmn = Math.max(fVal-aVal,0);
@@ -1398,7 +1398,7 @@ function App() {
                           <td style={{borderRight:"2px solid var(--border)"}}><span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--green)"}}>{fmtK(g.aTotal)}</span></td>
                         )}
                         {budgetColVis.forecast ? (<>
-                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fGas)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fGas-g.aGas,0))}</div>}{(g.fGasProfit-g.aGasProfit)>0&&<div style={{fontSize:9,color:"var(--accent)",fontWeight:600}}>残利益:{fmtK(Math.max(g.fGasProfit-g.aGasProfit,0))}</div>}</div></td>
+                          <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fGas)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fGas-g.aGas,0))}</div>}{g.fGasProfit>0&&<div style={{fontSize:9,color:"var(--accent)",fontWeight:600}}>残利益:{fmtK(g.fGasProfit)}</div>}</div></td>
                           <td><div style={{textAlign:"right",lineHeight:1.6}}><div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:"var(--gold)",fontWeight:700}}>{fmtK(g.fKougu)}</div>{g.rFTotal!==null&&<div style={{fontSize:9,color:"var(--muted)"}}>残:{fmtK(Math.max(g.fKougu-g.aKougu,0))}</div>}{g.fKouguProfit>0&&<div style={{fontSize:9,color:"var(--accent)",fontWeight:600}}>残利益:{fmtK(g.fKouguProfit)}</div>}</div></td>
                           <td><div style={{textAlign:"right",lineHeight:1.6}}>
                             <span style={{fontFamily:"'DM Mono',monospace",fontWeight:900,fontSize:isTotal?15:13,color:"var(--gold)"}}>{fmtK(g.fTotal)}</span>
